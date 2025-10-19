@@ -250,6 +250,29 @@ const SankeyLink = (p: SankeyLinkProps) => {
   }
 };
 
+// Recharts expects an element for custom renderers; provide typed elements with dummy defaults.
+const SankeyNodeElement = (
+  <SankeyNode x={0} y={0} width={0} height={0} payload={{ name: '', value: 0 }} />
+);
+const SankeyLinkElement = (
+  <SankeyLink sourceX={0} sourceY={0} targetX={0} targetY={0} sourceControlX={0} targetControlX={0} />
+);
+    return (<g><path d={d} fill="none" stroke={color} strokeOpacity={0.35} strokeWidth={w} strokeLinecap="round" /><path d={d} fill="none" stroke={color} strokeOpacity={0.85} strokeWidth={w} strokeLinecap="round" strokeDasharray="8 8" style={style} /></g>);
+  } else if (w < 14) {
+    const style: CSSVars = { ['--cycle']: `${cycle}px`, animation: `flowLoop ${dur}s linear infinite` };
+    return (<g><path d={d} fill="none" stroke={color} strokeOpacity={0.35} strokeWidth={w} strokeLinecap="round" /><path d={d} fill="none" stroke={color} strokeOpacity={0.78} strokeWidth={w * 0.88} strokeLinecap="round" strokeDasharray={`${dash} ${gap}`} style={style} /></g>);
+  } else {
+    const style: CSSVars = { ['--cycle']: `${Math.round(cycle * 1.4 + gap * 2)}px`, animation: `flowLoop ${Math.max(dur, 6)}s linear infinite` };
+    return (
+      <g>
+        <path d={d} fill="none" stroke={color} strokeOpacity={0.35} strokeWidth={w} strokeLinecap="round" />
+        <path d={d} fill="none" stroke="#ffffff" strokeOpacity={0.35} strokeWidth={w * 0.45} strokeLinecap="round" strokeDasharray={`${Math.round(cycle * 1.4)} ${Math.round(gap * 2)}`} style={style} />
+        <path d={d} fill="none" stroke={color} strokeOpacity={0.55} strokeWidth={Math.max(2, w * 0.08)} strokeLinecap="round" />
+      </g>
+    );
+  }
+};
+
 // ---------- Main Component ----------
 
 export default function Page() {
@@ -398,7 +421,7 @@ export default function Page() {
               </div>
 
               <div className="mt-6 grid lg:grid-cols-3 gap-6">
-                <Card className="shadow-sm lg:col-span-2"><CardContent className="p-4"><div className="flex items-center justify-between mb-2"><div className="text-sm font-medium">Carton flow</div></div><div className="h-[520px]"><ResponsiveContainer width="100%" height="100%"><Sankey data={{ nodes: cartonSankey.nodes, links: cartonSankey.links }} nodePadding={36} nodeWidth={16} linkCurvature={0.5} node={<SankeyNode />} link={<SankeyLink />}><RTooltip formatter={(v: unknown) => fmt(Number(v)) + " cartons"} /></Sankey></ResponsiveContainer></div></CardContent></Card>
+                <Card className="shadow-sm lg:col-span-2"><CardContent className="p-4"><div className="flex items-center justify-between mb-2"><div className="text-sm font-medium">Carton flow</div></div><div className="h-[520px]"><ResponsiveContainer width="100%" height="100%"><Sankey data={{ nodes: cartonSankey.nodes, links: cartonSankey.links }} nodePadding={36} nodeWidth={16} linkCurvature={0.5} node={SankeyNodeElement} link={SankeyLinkElement}><RTooltip formatter={(v: unknown) => fmt(Number(v)) + " cartons"} /></Sankey></ResponsiveContainer></div></CardContent></Card>
                 <Card className="shadow-sm lg:col-span-1"><CardContent className="p-4"><div className="text-sm font-medium mb-2">Channel breakdown</div><div className="border rounded-lg overflow-hidden"><table className="w-full text-sm"><thead className="bg-slate-50"><tr><th className="text-left p-2">Channel</th><th className="text-right p-2">Cartons</th><th className="text-right p-2">Share</th><th className="text-left p-2">→ Dest</th></tr></thead><tbody>{cartonSankey.flowRows.map((r: FlowRow) => (<tr key={r.channel} className="border-t"><td className="p-2"><div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: NODE_COLORS[r.channel] || "#94a3b8" }} /> {r.channel}</div></td><td className="p-2 text-right">{fmt(r.cartons)}</td><td className="p-2 text-right">{Math.round((r.pct || 0) * 100)}%</td><td className="p-2">{r.dest}</td></tr>))}</tbody></table></div></CardContent></Card>
               </div>
             </TabsContent>
