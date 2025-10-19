@@ -231,23 +231,39 @@ const SankeyLink = (p: SankeyLinkProps) => {
   const ch = (source?.name === "Decant" ? target?.name : source?.name) || "";
   const color = NODE_COLORS[ch] || "#94a3b8";
   const w = Math.max(1, Number(linkWidth) || Number(payload?.dy) || 2);
-  const dash = Math.max(8, Math.round(w * 2)); const gap = Math.max(8, Math.round(w * 1.4)); const cycle = dash + gap; const dur = Math.min(10, Math.max(2.4, 1.5 + w * 0.35));
+  const dash = Math.max(8, Math.round(w * 2));
+  const gap = Math.max(8, Math.round(w * 1.4));
+  const cycle = dash + gap;
+  const dur = Math.min(12, Math.max(2.4, 1.2 + w * 0.35));
+
   if (w < 6) {
-    const style: CSSVars = { ['--cycle']: `${16}px`, animation: `flowLoop ${dur}s linear infinite` };
-    return (<g><path d={d} fill="none" stroke={color} strokeOpacity={0.35} strokeWidth={w} strokeLinecap="round" /><path d={d} fill="none" stroke={color} strokeOpacity={0.85} strokeWidth={w} strokeLinecap="round" strokeDasharray="8 8" style={style} /></g>);
-  } else if (w < 14) {
-    const style: CSSVars = { ['--cycle']: `${cycle}px`, animation: `flowLoop ${dur}s linear infinite` };
-    return (<g><path d={d} fill="none" stroke={color} strokeOpacity={0.35} strokeWidth={w} strokeLinecap="round" /><path d={d} fill="none" stroke={color} strokeOpacity={0.78} strokeWidth={w * 0.88} strokeLinecap="round" strokeDasharray={`${dash} ${gap}`} style={style} /></g>);
-  } else {
-    const style: CSSVars = { ['--cycle']: `${Math.round(cycle * 1.4 + gap * 2)}px`, animation: `flowLoop ${Math.max(dur, 6)}s linear infinite` };
+    const style: CSSVars = { ['--cycle']: '16px', animation: `flowLoop ${dur}s linear infinite` };
     return (
       <g>
         <path d={d} fill="none" stroke={color} strokeOpacity={0.35} strokeWidth={w} strokeLinecap="round" />
-        <path d={d} fill="none" stroke="#ffffff" strokeOpacity={0.35} strokeWidth={w * 0.45} strokeLinecap="round" strokeDasharray={`${Math.round(cycle * 1.4)} ${Math.round(gap * 2)}`} style={style} />
-        <path d={d} fill="none" stroke={color} strokeOpacity={0.55} strokeWidth={Math.max(2, w * 0.08)} strokeLinecap="round" />
+        <path d={d} fill="none" stroke={color} strokeOpacity={0.85} strokeWidth={w} strokeLinecap="round" strokeDasharray="8 8" style={style} />
       </g>
     );
   }
+
+  if (w < 14) {
+    const style: CSSVars = { ['--cycle']: `${cycle}px`, animation: `flowLoop ${dur}s linear infinite` };
+    return (
+      <g>
+        <path d={d} fill="none" stroke={color} strokeOpacity={0.35} strokeWidth={w} strokeLinecap="round" />
+        <path d={d} fill="none" stroke={color} strokeOpacity={0.78} strokeWidth={w * 0.88} strokeLinecap="round" strokeDasharray={`${dash} ${gap}`} style={style} />
+      </g>
+    );
+  }
+
+  const style: CSSVars = { ['--cycle']: `${Math.round(cycle * 1.4 + gap * 2)}px`, animation: `flowLoop ${Math.max(dur, 6)}s linear infinite` };
+  return (
+    <g>
+      <path d={d} fill="none" stroke={color} strokeOpacity={0.35} strokeWidth={w} strokeLinecap="round" />
+      <path d={d} fill="none" stroke="#ffffff" strokeOpacity={0.35} strokeWidth={w * 0.45} strokeLinecap="round" strokeDasharray={`${Math.round(cycle * 1.4)} ${Math.round(gap * 2)}`} style={style} />
+      <path d={d} fill="none" stroke={color} strokeOpacity={0.55} strokeWidth={Math.max(2, w * 0.08)} strokeLinecap="round" />
+    </g>
+  );
 };
 
 // Recharts expects an element for custom renderers; provide typed elements with dummy defaults.
