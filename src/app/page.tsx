@@ -11,7 +11,7 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { BarChart, Bar, XAxis, YAxis, Tooltip as RTooltip, Legend, ResponsiveContainer, Sankey } from "recharts";
-import { Factory, AlertTriangle, DollarSign, Clock, TrendingDown, CalendarDays, ArrowDownRight } from "lucide-react";
+import { Factory, AlertTriangle, TrendingDown, CalendarDays, ArrowDownRight } from "lucide-react";
 
 // ---------- Types ----------
 
@@ -168,7 +168,7 @@ function useModel(
 ) {
   const { hourlyRate, params, issuesEnabled, issues, mitigation, calibrate, storeHours, cfg, bump } = opts;
   const kRef = useRef<number | null>(null);
-  return useMemo(() => {
+  return useMemo(() => { void bump;
     const cur = byAlias(raw.rates_per_1000), neu = byAlias(raw.new_rates_per_1000), ros = byAlias(raw.rostered_hours);
     const { shares } = sharesFrom(params, raw.scenario_params);
     const demand = shares["Demand %"] || 0,
@@ -275,13 +275,13 @@ export default function Page() {
     return { weeklyHours: wh, weeklySavings: ws, annualSavings: ws * Math.max(0, weeks), fteEq: fteHours > 0 ? wh / fteHours : 0 };
   }, [calc.benefitHours, calc.savings, stores, weeks, fteHours]);
 
-  const currentH = calc.totals.current, newH = calc.totals.new, deltaH = currentH - newH, pctSaved = currentH > 0 ? deltaH / currentH : 0, maxH = Math.max(currentH, newH);
+  const currentH = calc.totals.current, newH = calc.totals.new, deltaH = currentH - newH, pctSaved = currentH > 0 ? deltaH / currentH : 0;
   const procList = useMemo(() => uniq([...baseProcs, ...calc.rows.map(r => r.process)]), [baseProcs, calc.rows]);
   const processColors = useMemo(() => { const m: Record<string, string> = {}; procList.forEach((p, i) => m[p] = ["#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#8b5cf6", "#0ea5e9", "#10b981", "#eab308", "#f43f5e"][i % 9]); return m }, [procList]);
   const barData = useMemo(() => calc.rows.map(r => ({ name: r.process, current: r.current, new: r.new })), [calc.rows]);
   const distData = useMemo(() => { const ct = calc.totals.current || 1, nt = calc.totals.new || 1, cur: Record<string, number | string> = { name: "Current" }, nw: Record<string, number | string> = { name: "New" }; for (const r of calc.rows) { cur[r.process] = r.current / ct; nw[r.process] = r.new / nt } return [cur, nw] }, [calc.rows, calc.totals]);
 
-  const cartonSankey = useMemo(() => {
+  const cartonSankey = useMemo(() => { void bump;
     const cartons = Number(RAW_DATA.inputs?.["Cartons Delivered"] ?? 0) || 0, dem = (shares["Demand %"] || 0) + (remaining || 0);
     const cats: [string, string, number][] = [["Demand %", "Demand", dem], ["Non-demand %", "Non‑demand", shares["Non-demand %"] || 0], ["Markup %", "Markup", shares["Markup %"] || 0], ["Clearance %", "Clearance", shares["Clearance %"] || 0], ["New lines %", "New lines", shares["New lines %"] || 0], ["LP %", "LP", shares["LP %"] || 0], ["OMS %", "OMS", shares["OMS %"] || 0]];
     const dest: Record<string, string> = { Demand: "Loadfill", "Non‑demand": "Packaway", Markup: "Digital Tasks", Clearance: "Digital Tasks", "New lines": "Digital Tasks", LP: "Digital Tasks", OMS: "Digital Tasks" };
@@ -292,7 +292,7 @@ export default function Page() {
     for (const [, lab, s] of cats) { const v = Math.max(0, cartons * Number(s)); if (v > 0) links.push({ source: id(lab), target: id(dest[lab] || "Loadfill"), value: Math.max(0.01, v) }) }
     const flowRows: FlowRow[] = cats.map(([, lab, s]) => ({ channel: lab, cartons: Math.max(0, cartons * Number(s)), pct: Math.max(0, Number(s)), dest: dest[lab] || "Loadfill" }));
     return { nodes, links, flowRows };
-  }, [params, RAW_DATA.inputs, shares, remaining]);
+  }, [shares, remaining, bump]);
 
   useEffect(() => {
     const hs = calc.totals.current - calc.totals.new; console.assert(Math.abs(hs - calc.benefitHours) < 1e-6, "benefit calc");
@@ -302,7 +302,7 @@ export default function Page() {
     console.assert(fmt(undefined) === "0" && fmt(null) === "0", "fmt guard");
   }, [calc, params, cfg]);
 
-  const otherScenarioKeys = useMemo(() => Object.keys(RAW_DATA.scenario_params).filter(k => !(CAT_KEYS as readonly string[]).includes(k as any)), []);
+  const otherScenarioKeys = useMemo(() => Object.keys(RAW_DATA.scenario_params).filter(k => !(CAT_KEYS as readonly string[]).includes(k)), []);
   const removeImpact = (id: string, proc: string) => { setIssueDefs(p => p.map(it => it.id === id ? { ...it, impact: Object.fromEntries(Object.entries(it.impact).filter(([k]) => alias(k) !== proc)) } : it)); setBump(x => x + 1) };
 
   return (
