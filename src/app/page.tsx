@@ -1,8 +1,5 @@
 "use client";
 
-export const runtime = "edge";
-export const dynamic = "force-static";
-export const revalidate = 0;
 
 import React, { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -264,6 +261,11 @@ export default function Page() {
               </div>
             </CardContent></Card>
 
+            <div className="grid lg:grid-cols-2 gap-4">
+              <Card className="shadow-sm"><CardContent className="p-4"><div className="text-sm font-medium mb-2">Current vs New hours by process</div><CompareBars rows={procRows} /></CardContent></Card>
+              <Card className="shadow-sm"><CardContent className="p-4"><div className="text-sm font-medium mb-2">Benefit by process (Δ hours)</div><DeltaBars rows={procRows} /></CardContent></Card>
+            </div>
+
             <Card className="shadow-sm"><CardContent className="p-4 space-y-3">
               <div className="text-sm font-medium">Issue scenarios</div>
               <div className="grid md:grid-cols-3 gap-4">
@@ -305,18 +307,81 @@ function ProcTable({ cfg, setCfg }: { cfg: Record<ProcessKey, ProcCfg>; setCfg: 
   );
 }
 
+function CompareBars({ rows }: { rows: { name: string; current: number; next: number }[] }) {
+  const H = 260, pad = 40;
+  const max = Math.max(...rows.flatMap(r => [r.current, r.next, 1]));
+  const W = Math.max(640, rows.length * 84 + pad * 2);
+  const gx = (i: number) => pad + i * 84 + 10;
+  const sy = (v: number) => H - 40 - (v / max) * (H - 80);
+  return (
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-[280px]">
+        <rect x={0} y={0} width={W} height={H} fill="transparent" />
+        <line x1={pad - 10} y1={H - 40} x2={W - pad + 10} y2={H - 40} stroke="#e2e8f0" />
+        {rows.map((r, i) => {
+          const x = gx(i);
+          const cH = Math.max(2, (H - 80) * (r.current / max));
+          const nH = Math.max(2, (H - 80) * (r.next / max));
+          return (
+            <g key={r.name}>
+              <rect x={x} y={sy(r.current)} width={26} height={cH} fill="#0ea5e9" rx={4} />
+              <rect x={x + 32} y={sy(r.next)} width={26} height={nH} fill="#10b981" rx={4} />
+              <text x={x + 13} y={H - 22} fontSize={11} textAnchor="middle" fill="#334155">{r.name}</text>
+            </g>
+          );
+        })}
+      </svg>
+      <div className="flex items-center gap-4 text-xs text-slate-600 mt-1">
+        <div className="flex items-center gap-2"><span className="w-3 h-3 rounded" style={{background:'#0ea5e9'}}></span> Current</div>
+        <div className="flex items-center gap-2"><span className="w-3 h-3 rounded" style={{background:'#10b981'}}></span> New</div>
+      </div>
+    </div>
+  );
+}
+
+function DeltaBars({ rows }: { rows: { name: string; current: number; next: number }[] }) {
+  const data = rows.map(r => ({ name: r.name, delta: Math.round(r.current - r.next) })).sort((a,b)=>b.delta-a.delta);
+  const H = Math.max(180, data.length * 28 + 40), pad = 60, W = 640;
+  const max = Math.max(...data.map(d=>Math.abs(d.delta)), 1);
+  const cx = W/2, scale = (v:number)=> (W/2 - pad) * (Math.abs(v)/max);
+  return (
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-[280px]">
+        <line x1={cx} y1={16} x2={cx} y2={H-16} stroke="#e2e8f0" />
+        {data.map((d,i)=>{
+          const y = 28 + i*24;
+          const w = Math.max(2, scale(d.delta));
+          const pos = d.delta >= 0;
+          const x = pos ? cx : cx - w;
+          return (
+            <g key={d.name}>
+              <text x={12} y={y+4} fontSize={11} fill="#334155">{d.name}</text>
+              <rect x={x} y={y-8} width={w} height={16} rx={4} fill={pos?"#10b981":"#ef4444"} />
+              <text x={pos? x+w+6 : x-6} y={y+4} fontSize={11} fill="#475569" textAnchor={pos?"start":"end"}>{pos?"-":"+"}{Math.abs(d.delta).toLocaleString()}</text>
+            </g>
+          );
+        })}
+      </svg>
+      <div className="flex items-center gap-4 text-xs text-slate-600 mt-1">
+        <div className="flex items-center gap-2"><span className="w-3 h-3 rounded" style={{background:'#10b981'}}></span> Hours saved</div>
+        <div className="flex items-center gap-2"><span className="w-3 h-3 rounded" style={{background:'#ef4444'}}></span> Hours increase</div>
+      </div>
+    </div>
+  );
+}
+
 function SankeySimple({ cartons, chCartons, unitsNew }: { cartons: number; chCartons: Record<string, number>; unitsNew: Record<ProcessKey, number> }) {
   const W = 1200, H = 520;
   const stageX = [Math.round(W*0.06), Math.round(W*0.36), Math.round(W*0.75)];
   const scale = (v: number) => Math.max(2, Math.sqrt(v) * 0.25);
   const channels = ["Demand","Non-demand","Markup","Clearance","New lines","LP","OMS"] as const;
-  const dests: ProcessKey[] = ["Loadfill","Packaway","Digital","Online","Backfill"];
+  const dests: ProcessKey[] = ["Loadfill","Packaway","Digital","Online"];
   const labelDest = (d: ProcessKey)=> d === "Digital" ? "Digital Shopkeeping" : d;
 
   const nodes: { x: number; y: number; w: number; h: number; label: string; value: number; color: string }[] = [];
   nodes.push({ x: stageX[0], y: H/2-24, w: 14, h: 56, label: "Decant", value: cartons, color: NODE_COLORS.Decant });
   channels.forEach((c, i)=> nodes.push({ x: stageX[1], y: 40 + i*64, w: 14, h: 34, label: c, value: chCartons[c], color: NODE_COLORS[c] }));
-  dests.forEach((d, i)=> nodes.push({ x: stageX[2] + (d==="Backfill"?100:0), y: 40 + i*78, w: 14, h: 38, label: labelDest(d), value: unitsNew[d], color: NODE_COLORS[d] }));
+  dests.forEach((d, i)=> nodes.push({ x: stageX[2], y: 40 + i*78, w: 14, h: 38, label: labelDest(d), value: unitsNew[d], color: NODE_COLORS[d] }));
 
   const links: { from: number; to: number; v: number; color: string }[] = [];
   channels.forEach((c, i)=> {
@@ -327,9 +392,7 @@ function SankeySimple({ cartons, chCartons, unitsNew }: { cartons: number; chCar
     Object.entries(share).forEach(([k, pct])=> links.push({ from: base, to: toIdx(k as ProcessKey), v: v * (pct || 0), color: NODE_COLORS[c] }));
   });
 
-  const idxPack = 1 + channels.length + dests.indexOf("Packaway"), idxBack = 1 + channels.length + dests.indexOf("Backfill"), packV = unitsNew["Packaway"] || 0;
-  if (packV > 0) links.push({ from: idxPack, to: idxBack, v: packV, color: NODE_COLORS["Packaway"] });
-
+  
   const path = (a: {x:number;y:number}, b:{x:number;y:number}) => `M${a.x},${a.y} C ${(a.x+b.x)/2},${a.y} ${(a.x+b.x)/2},${b.y} ${b.x},${b.y}`;
 
   return (
