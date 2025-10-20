@@ -7,7 +7,7 @@
     "build": "next build --turbopack",
     "start": "next start",
     "lint": "eslint",
-    "pages:build": "opennextjs-cloudflare build",
+    "pages:build": "opennext cloudflare build --mode pages",
     "pages:preview": "opennextjs-cloudflare preview",
     "pages:deploy": "opennextjs-cloudflare deploy"
   },

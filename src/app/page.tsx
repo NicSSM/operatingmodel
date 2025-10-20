@@ -1,7 +1,10 @@
 "use client";
 
-import React, { useMemo, useState, useEffect, useRef } from "react";
-import { motion } from "framer-motion";
+export const runtime = "edge";
+export const dynamic = "force-static";
+export const revalidate = 0;
+
+import React, { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -9,403 +12,344 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { Factory, AlertTriangle, TrendingDown, CalendarDays, ArrowDownRight } from "lucide-react";
+import { Factory } from "lucide-react";
 
 type Unit = "cartons" | "online";
 
-type ProcCfg = { unit: Unit; useRoster: boolean; demand: boolean; backfill: boolean; nd: number; ex: number; oms: number };
+type ProcCfg = { unit: Unit; useRoster: boolean; rate: number; roster: number };
 
-type Issue = { id: string; name: string; description: string; impact: Record<string, number> };
+type Issue = { id: string; name: string; impact: Partial<Record<ProcessKey, number>> };
 
-type SankeyNodePayload = { name: string; value: number };
-export type SankeyNodeProps = { x: number; y: number; width: number; height: number; payload: SankeyNodePayload };
+type ProcessKey = "Decant" | "Loadfill" | "Packaway" | "Digital" | "Online" | "Backfill";
 
-type SankeyLinkNode = { name?: string };
+const PROCS: ProcessKey[] = ["Decant", "Loadfill", "Packaway", "Digital", "Online", "Backfill"];
+const PROC_LABEL = (p: ProcessKey) => (p === "Digital" ? "Digital Shopkeeping" : p);
 
-type SankeyLinkPayload = { dy?: number };
-
-export type SankeyLinkProps = { source?: SankeyLinkNode; target?: SankeyLinkNode; sourceX: number; sourceY: number; targetX: number; targetY: number; sourceControlX: number; targetControlX: number; linkWidth?: number; payload?: SankeyLinkPayload };
-
-type SankeyLinkDatum = { source: number; target: number; value: number };
-
-type FlowRow = { channel: string; cartons: number; pct: number; dest: string };
-
-type CSSVars = React.CSSProperties & Record<'--cycle', string>;
-
-type NumProps = { value: number; onChange: (n: number) => void; step?: number; min?: number; max?: number; className?: string };
-function Num({ value, onChange, step = 1, min = Number.NEGATIVE_INFINITY, max = Number.POSITIVE_INFINITY, className }: NumProps) {
-  const [txt, setTxt] = useState<string>(String(Number.isFinite(value) ? value : 0));
-  useEffect(() => setTxt(String(Number.isFinite(value) ? value : 0)), [value]);
-  const clamp = (n: number) => Math.max(min, Math.min(max, n));
-  const commit = () => { const n = Number(txt); const v = Number.isFinite(n) ? clamp(n) : (Number.isFinite(value) ? value : 0); setTxt(String(v)); onChange(v); };
-  return (
-    <Input
-      type="number"
-      inputMode="decimal"
-      className={`h-8 ${className || ""}`}
-      value={txt}
-      step={step}
-      min={Number.isFinite(min) ? min : undefined}
-      max={Number.isFinite(max) ? max : undefined}
-      onChange={(e) => setTxt(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => { if (e.key === "Enter") { commit(); } }}
-    />
-  );
-}
-
-const NODE_COLORS: Record<string, string> = { "Cartons Delivered": "#1f2937", Decant: "#2563eb", Demand: "#16a34a", "Non‑demand": "#f59e0b", Markup: "#8b5cf6", Clearance: "#ef4444", "New lines": "#0ea5e9", LP: "#10b981", OMS: "#eab308", Loadfill: "#16a34a", Packaway: "#f59e0b", "Digital Tasks": "#0ea5e9", Online: "#0ea5e9", Backfill: "#334155" };
-
-const CAT_KEYS = ["Demand %", "Non-demand %", "Markup %", "Clearance %", "New lines %", "LP %", "OMS %"] as const;
-
-const CAT_COLOR: Record<string, string> = { "Demand %": NODE_COLORS.Demand, "Non-demand %": NODE_COLORS["Non‑demand"], "Markup %": NODE_COLORS.Markup, "Clearance %": NODE_COLORS.Clearance, "New lines %": NODE_COLORS["New lines"], "LP %": NODE_COLORS.LP, "OMS %": NODE_COLORS.OMS };
-
-const alias = (p: string) => (p === "Sequence" ? "Loadfill" : p);
-const uniq = <T,>(xs: T[]) => Array.from(new Set(xs));
-const cap = (x: number, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, x));
-const fmt = (n: unknown, d = 0) => { const x = Number(n); return Number.isFinite(x) ? x.toLocaleString(undefined, { maximumFractionDigits: d }) : "0" };
-const getNum = (o: Record<string, number> | undefined, k: string, f = 0): number => Number(o?.[k] ?? f);
-const setNum = (o: Record<string, number>, k: string, v: number) => { o[k] = isNaN(v) ? 0 : v };
-const parseUnit = (s: string): Unit => (s === "online" ? "online" : "cartons");
-
-const FLOW_CSS = `@keyframes flowLoop { to { stroke-dashoffset: calc(-1 * var(--cycle, 64px)); } }`;
-
-const RAW_DATA: { inputs: Record<string, number>; scenario_params: Record<string, number>; rostered_hours: Record<string, number>; rates_per_1000: Record<string, number>; new_rates_per_1000: Record<string, number> } = {
-  inputs: { "Cartons Delivered": 12000, "Backfill Keycodes": 2500, "Backfill Apparel (RFID)": 1000, "Online Units": 1571 },
-  scenario_params: { "Demand %": 0.68, "Non-demand %": 0.1, "Markup %": 0.005, "VIP Backfill %": 0.1, "Clearance %": 0.0, "New lines %": 0.11, "OMS %": 0.005, "LP %": 0.005 },
-  rostered_hours: { Decant: 156.5, Sequence: 441, Online: 56.75 },
-  rates_per_1000: { Decant: 13, Loadfill: 40.3, Packaway: 30, Backfill: 15, "Digital Tasks": 88, Online: 55 },
-  new_rates_per_1000: { Decant: 13, Loadfill: 40.3, Packaway: 30, Backfill: 15, "Digital Tasks": 88, Online: 55 }
+const fmt = (n: unknown, d = 0) => {
+  const x = Number(n);
+  return Number.isFinite(x) ? x.toLocaleString(undefined, { maximumFractionDigits: d }) : "0";
 };
 
-const defaultCfg = (n: string): ProcCfg => { const p = alias(n); if (p === "Loadfill") return { unit: "cartons", useRoster: true, demand: true, backfill: false, nd: -1, ex: -1, oms: 1 }; if (p === "Packaway") return { unit: "cartons", useRoster: false, demand: true, backfill: false, nd: 1, ex: 0, oms: 1 }; if (p === "Digital Tasks") return { unit: "online", useRoster: false, demand: false, backfill: false, nd: 0, ex: 1, oms: 0 }; if (p === "Online") return { unit: "online", useRoster: true, demand: false, backfill: false, nd: 0, ex: 0, oms: 1 }; if (p === "Backfill") return { unit: "cartons", useRoster: false, demand: false, backfill: true, nd: 0, ex: 0, oms: 0 }; if (p === "Decant") return { unit: "cartons", useRoster: true, demand: false, backfill: false, nd: 0, ex: 0, oms: 0 }; return { unit: "cartons", useRoster: false, demand: false, backfill: false, nd: 0, ex: 0, oms: 0 } };
+const clamp = (x: number, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, x));
 
-const byAlias = (obj?: Record<string, number>) => { const o: Record<string, number> = {}; for (const [k, v] of Object.entries(obj || {})) o[alias(k)] = (o[alias(k)] || 0) + (v || 0); return o };
+const CAT_KEYS = [
+  "Demand %",
+  "Non-demand %",
+  "Markup %",
+  "Clearance %",
+  "New lines %",
+  "LP %",
+  "OMS %",
+] as const;
 
-const sharesFrom = (params: Record<string, number>, defs: Record<string, number>) => { const shares: Record<string, number> = {}, ks = CAT_KEYS as readonly string[]; let tot = 0; for (const k of ks) { const v = Math.max(0, params[k] ?? defs[k] ?? 0); shares[k] = v; tot += v } if (tot > 1) { const s = 1 / tot; for (const k of ks) shares[k] *= s; tot = 1 } return { shares, total: tot, remaining: Math.max(0, 1 - tot) } };
+type CatKey = typeof CAT_KEYS[number];
 
-const ISSUE_LIBRARY: Issue[] = [ { id: "late_delivery", name: "Late DC Delivery", description: "Inbound late; rehandling & congestion", impact: { Decant: 0.1, Loadfill: 0.05 } }, { id: "high_non_demand", name: "High Non‑demand", description: "Over-index of non-demand", impact: { Backfill: 0.1, Packaway: 0.05 } }, { id: "roster_gaps", name: "Roster Gaps", description: "Roster misaligned to load", impact: { Decant: 0.1, Loadfill: 0.1, Online: 0.1 } } ];
-
-function useModel(raw: typeof RAW_DATA, opts: { hourlyRate: number; params: Record<string, number>; issuesEnabled: Record<string, boolean>; issues: Issue[]; mitigation: number; calibrate: boolean; storeHours: number; cfg: Record<string, ProcCfg>; bump?: number }) {
-  const { hourlyRate, params, issuesEnabled, issues, mitigation, calibrate, storeHours, cfg } = opts;
-  const kRef = useRef<number | null>(null);
-  return useMemo(() => {
-    const cur = byAlias(raw.rates_per_1000), neu = byAlias(raw.new_rates_per_1000), ros = byAlias(raw.rostered_hours);
-    const { shares } = sharesFrom(params, raw.scenario_params);
-    const demand = shares["Demand %"] || 0, ndm = shares["Non-demand %"] || 0, extras = (shares["Markup %"] || 0) + (shares["Clearance %"] || 0) + (shares["New lines %"] || 0) + (shares["LP %"] || 0), oms = shares["OMS %"] || 0;
-    const cartons = Number(raw.inputs?.["Cartons Delivered"] ?? 0) || 0, online = Number(raw.inputs?.["Online Units"] ?? 0) || 0;
-    const procs = uniq([...Object.keys(cur), ...Object.keys(ros)]).map(alias).sort();
-    const units: Record<string, number> = Object.fromEntries(procs.map(p => [p, ((cfg[p]?.unit ?? ((p === "Digital Tasks" || p === "Online") ? "online" : "cartons")) === "online" ? online : cartons) / 1000]));
-    const rosSet = new Set(Object.keys(raw.rostered_hours || {}).map(alias));
-    if (!calibrate) kRef.current = null;
-    if (calibrate && kRef.current == null) { let r = 0, d = 0; for (const p of procs) { const rate = cur[p] || 0, u = units[p] || 0; if (cfg[p]?.useRoster || rosSet.has(p)) r += (ros[p] || 0); else d += rate * u } kRef.current = d > 0 ? Math.max(0, storeHours - r) / d : 1 }
-    const k = (kRef.current ?? 1);
-    const issueMult = (p: string, isNew: boolean) => issues.reduce((m, iss) => !issuesEnabled[iss.id] ? m : m * (1 + ((iss.impact[p] || 0) * (isNew ? (1 - mitigation) : 1))), 1);
-    const rows = procs.map(p => { const c = cfg[p] || defaultCfg(p); const u = units[p] || 0, rc = cur[p] || 0, rn = (neu[p] ?? rc); let f = 1; if (c.demand) f *= demand; if (c.backfill) { const vip = params["VIP Backfill %"] ?? raw.scenario_params["VIP Backfill %"] ?? 0; const bf = cap((params["Non-demand %"] ?? raw.scenario_params["Non-demand %"] ?? 0) + vip, 0, 1); f *= Math.max(0.0001, bf) } const nf = f * Math.max(0, 1 + c.nd * ndm) * Math.max(0, 1 + c.ex * extras) * Math.max(0, 1 - cap(c.oms, 0, 1) * oms); const useRos = c.useRoster || rosSet.has(p); const curBase = useRos ? (ros[p] || rc * u) : (rc * u * k); return { process: p, current: curBase * issueMult(p, false), new: rn * u * nf * issueMult(p, true) } });
-    const totals = rows.reduce((a, r) => ({ current: a.current + r.current, new: a.new + r.new }), { current: 0, new: 0 });
-    const benefitHours = totals.current - totals.new; return { rows, totals, benefitHours, savings: benefitHours * hourlyRate };
-  }, [raw, hourlyRate, params, issuesEnabled, issues, mitigation, calibrate, storeHours, cfg]);
-}
-
-type RechartsMod = typeof import("recharts");
-function useRecharts(): RechartsMod | null {
-  const [mod, setMod] = useState<RechartsMod | null>(null);
-  useEffect(() => { let alive = true; (async () => { try { const m = await import("recharts"); if (alive) setMod(m); } catch (e) { console.error("Failed to load recharts", e); } })(); return () => { alive = false }; }, []);
-  return mod;
-}
-
-function BarCompare({ data }: { data: { name: string; current: number; new: number }[] }) {
-  const M = useRecharts();
-  if (!M) return <div className="h-[360px] grid place-items-center text-slate-400 text-sm">Loading chart…</div>;
-  const RC = M.ResponsiveContainer as unknown as React.ComponentType<Record<string, unknown>>;
-  const BC = M.BarChart as unknown as React.ComponentType<Record<string, unknown>>;
-  const BarC = M.Bar as unknown as React.ComponentType<Record<string, unknown>>;
-  const X = M.XAxis as unknown as React.ComponentType<Record<string, unknown>>;
-  const Y = M.YAxis as unknown as React.ComponentType<Record<string, unknown>>;
-  const TT = M.Tooltip as unknown as React.ComponentType<Record<string, unknown>>;
-  return (
-    <RC width="100%" height="100%">
-      <BC data={data}>
-        <X dataKey="name" tick={{ fontSize: 12 }} interval={0} angle={-20} textAnchor="end" height={60} />
-        <Y />
-        <TT formatter={(v: unknown) => fmt(Number(v)) + " hrs"} contentStyle={{ fontSize: 12 }} />
-        <BarC dataKey="current" name="Current" fill="#0ea5e9" radius={[4, 4, 0, 0]} isAnimationActive animationDuration={800} animationEasing="ease-out" />
-        <BarC dataKey="new" name="New Model" fill="#16a34a" radius={[4, 4, 0, 0]} isAnimationActive animationDuration={800} animationEasing="ease-out" />
-      </BC>
-    </RC>
-  );
-}
-
-function DistStack({ data, keys, colorMap }: { data: Record<string, number | string>[]; keys: string[]; colorMap: Record<string, string> }) {
-  const M = useRecharts();
-  if (!M) return <div className="h-[360px] grid place-items-center text-slate-400 text-sm">Loading chart…</div>;
-  const RC = M.ResponsiveContainer as unknown as React.ComponentType<Record<string, unknown>>;
-  const BC = M.BarChart as unknown as React.ComponentType<Record<string, unknown>>;
-  const BarC = M.Bar as unknown as React.ComponentType<Record<string, unknown>>;
-  const X = M.XAxis as unknown as React.ComponentType<Record<string, unknown>>;
-  const Y = M.YAxis as unknown as React.ComponentType<Record<string, unknown>>;
-  const TT = M.Tooltip as unknown as React.ComponentType<Record<string, unknown>>;
-  return (
-    <RC width="100%" height="100%">
-      <BC data={data} stackOffset="expand">
-        <X dataKey="name" />
-        <Y tickFormatter={(v: number) => Math.round((Number(v) || 0) * 100) + "%"} />
-        <TT formatter={(v: unknown) => Math.round((Number(v) || 0) * 100) + "%"} contentStyle={{ fontSize: 12 }} />
-        {keys.map(k => (<BarC key={k} dataKey={k} stackId="a" fill={colorMap[k]} />))}
-      </BC>
-    </RC>
-  );
-}
-
-function CartonSankey({ nodes, links }: { nodes: { name: string }[]; links: SankeyLinkDatum[] }) {
-  const M = useRecharts();
-  if (!M) return <div className="h-[520px] grid place-items-center text-slate-400 text-sm">Loading flow…</div>;
-  const RC = M.ResponsiveContainer as unknown as React.ComponentType<Record<string, unknown>>;
-  const SankeyC = M.Sankey as unknown as React.ComponentType<Record<string, unknown>>;
-  const TT = M.Tooltip as unknown as React.ComponentType<Record<string, unknown>>;
-  const Any = {} as Record<string, unknown>;
-  return (
-    <RC width="100%" height="100%">
-      <SankeyC data={{ nodes, links }} nodePadding={36} nodeWidth={16} linkCurvature={0.5}
-        node={(props: Record<string, unknown>) => <SankeyNode {...(props as unknown as SankeyNodeProps)} />}
-        link={(props: Record<string, unknown>) => <SankeyLink {...(props as unknown as SankeyLinkProps)} />}
-        {...Any}
-      >
-        <TT formatter={(v: unknown) => fmt(Number(v)) + " cartons"} />
-      </SankeyC>
-    </RC>
-  );
-}
-
-const SankeyNode = (p: SankeyNodeProps) => { const { x, y, width, height, payload } = p; const name = payload?.name ?? "", val = Number(payload?.value ?? 0), color = NODE_COLORS[name] || "#64748b"; return (
-  <g>
-    <rect x={x} y={y} width={width} height={height} rx={8} fill="#f8fafc" stroke={color} strokeWidth={2} />
-    <text x={x + width / 2} y={y + height / 2 - 2} textAnchor="middle" fontSize={11} fontWeight={600} fill={color}>{name}</text>
-    <text x={x + width / 2} y={y + height / 2 + 14} textAnchor="middle" fontSize={11} fill="#334155">{fmt(val)} ctns</text>
-  </g>
-) };
-
-const SankeyLink = (p: SankeyLinkProps) => {
-  const { source, target, sourceX, sourceY, targetX, targetY, sourceControlX, targetControlX, linkWidth, payload } = p;
-  const d = `M${sourceX},${sourceY}C${sourceControlX},${sourceY} ${targetControlX},${targetY} ${targetX},${targetY}`;
-  const ch = (source?.name === "Decant" ? target?.name : source?.name) || "";
-  const color = NODE_COLORS[ch] || "#94a3b8";
-  const w = Math.max(1, Number(linkWidth) || Number(payload?.dy) || 2);
-  const dash = Math.max(8, Math.round(w * 2));
-  const gap = Math.max(8, Math.round(w * 1.4));
-  const cycle = dash + gap;
-  const dur = Math.min(12, Math.max(2.4, 1.2 + w * 0.35));
-  if (w < 6) { const style: CSSVars = { ['--cycle']: '16px', animation: `flowLoop ${dur}s linear infinite` }; return (<g><path d={d} fill="none" stroke={color} strokeOpacity={0.35} strokeWidth={w} strokeLinecap="round" /><path d={d} fill="none" stroke={color} strokeOpacity={0.85} strokeWidth={w} strokeLinecap="round" strokeDasharray="8 8" style={style} /></g>) }
-  if (w < 14) { const style: CSSVars = { ['--cycle']: `${cycle}px`, animation: `flowLoop ${dur}s linear infinite` }; return (<g><path d={d} fill="none" stroke={color} strokeOpacity={0.35} strokeWidth={w} strokeLinecap="round" /><path d={d} fill="none" stroke={color} strokeOpacity={0.78} strokeWidth={w * 0.88} strokeLinecap="round" strokeDasharray={`${dash} ${gap}`} style={style} /></g>) }
-  const style: CSSVars = { ['--cycle']: `${Math.round(cycle * 1.4 + gap * 2)}px`, animation: `flowLoop ${Math.max(dur, 6)}s linear infinite` };
-  return (<g><path d={d} fill="none" stroke={color} strokeOpacity={0.35} strokeWidth={w} strokeLinecap="round" /><path d={d} fill="none" stroke="#ffffff" strokeOpacity={0.35} strokeWidth={w * 0.45} strokeLinecap="round" strokeDasharray={`${Math.round(cycle * 1.4)} ${Math.round(gap * 2)}`} style={style} /><path d={d} fill="none" stroke={color} strokeOpacity={0.55} strokeWidth={Math.max(2, w * 0.08)} strokeLinecap="round" /></g>);
+const NODE_COLORS: Record<string, string> = {
+  Inbound: "#1f2937",
+  Decant: "#2563eb",
+  Demand: "#16a34a",
+  "Non-demand": "#f59e0b",
+  Markup: "#8b5cf6",
+  Clearance: "#ef4444",
+  "New lines": "#0ea5e9",
+  LP: "#10b981",
+  OMS: "#eab308",
+  Loadfill: "#16a34a",
+  Packaway: "#f59e0b",
+  Digital: "#0ea5e9",
+  Online: "#0ea5e9",
+  Backfill: "#334155",
 };
+
+const DEFAULT_INPUTS = { cartonsDelivered: 12000, onlineUnits: 1600, hourlyRate: 32, stores: 270 };
+
+const DEFAULT_SPLIT: Record<CatKey, number> = {
+  "Demand %": 0.68,
+  "Non-demand %": 0.1,
+  "Markup %": 0.02,
+  "Clearance %": 0.02,
+  "New lines %": 0.11,
+  "LP %": 0.02,
+  "OMS %": 0.05,
+};
+
+const DEFAULT_CURRENT: Record<ProcessKey, ProcCfg> = {
+  Decant: { unit: "cartons", useRoster: false, rate: 13, roster: 0 },
+  Loadfill: { unit: "cartons", useRoster: false, rate: 40, roster: 0 },
+  Packaway: { unit: "cartons", useRoster: false, rate: 30, roster: 0 },
+  Digital: { unit: "online", useRoster: false, rate: 88, roster: 0 },
+  Online: { unit: "online", useRoster: false, rate: 55, roster: 0 },
+  Backfill: { unit: "cartons", useRoster: false, rate: 15, roster: 0 },
+};
+
+const DEFAULT_NEW: Record<ProcessKey, ProcCfg> = {
+  Decant: { unit: "cartons", useRoster: false, rate: 12, roster: 0 },
+  Loadfill: { unit: "cartons", useRoster: false, rate: 36, roster: 0 },
+  Packaway: { unit: "cartons", useRoster: false, rate: 32, roster: 0 },
+  Digital: { unit: "online", useRoster: false, rate: 92, roster: 0 },
+  Online: { unit: "online", useRoster: false, rate: 50, roster: 0 },
+  Backfill: { unit: "cartons", useRoster: false, rate: 15, roster: 0 },
+};
+
+const ISSUES: Issue[] = [
+  { id: "late", name: "Late DC Delivery", impact: { Decant: 0.08, Loadfill: 0.04 } },
+  { id: "non_dem", name: "High Non‑demand Mix", impact: { Packaway: 0.08, Loadfill: 0.03 } },
+  { id: "roster", name: "Roster Gaps", impact: { Decant: 0.07, Loadfill: 0.07, Online: 0.07 } },
+];
+
+function useTotals(
+  inputs: typeof DEFAULT_INPUTS,
+  split: Record<CatKey, number>,
+  currentCfg: Record<ProcessKey, ProcCfg>,
+  newCfg: Record<ProcessKey, ProcCfg>,
+  issues: Record<string, boolean>,
+  mitigation: number
+) {
+  const cartons = Math.max(0, inputs.cartonsDelivered);
+  const online = Math.max(0, inputs.onlineUnits);
+  const s = CAT_KEYS.reduce((a, k) => a + (split[k] || 0), 0) || 1;
+  const g = (k: CatKey) => (split[k] || 0) / s;
+  const chCartons: Record<string, number> = {
+    Demand: cartons * g("Demand %"),
+    "Non-demand": cartons * g("Non-demand %"),
+    Markup: cartons * g("Markup %"),
+    Clearance: cartons * g("Clearance %"),
+    "New lines": cartons * g("New lines %"),
+    LP: cartons * g("LP %"),
+    OMS: cartons * g("OMS %"),
+  };
+  const mapCur = (): Record<ProcessKey, number> => {
+    const r: Record<ProcessKey, number> = { Decant: cartons, Loadfill: 0, Packaway: 0, Digital: 0, Online: online, Backfill: 0 };
+    r.Loadfill += chCartons.Demand + (chCartons["New lines"] + chCartons.Markup + chCartons.Clearance + chCartons.LP) * 0.7 + chCartons.OMS * 0.8;
+    r.Packaway += chCartons["Non-demand"] * 0.6 + chCartons.OMS * 0.2;
+    r.Digital += (chCartons["New lines"] + chCartons.Markup + chCartons.Clearance + chCartons.LP) * 0.3;
+    r.Backfill += chCartons["Non-demand"] * 0.4;
+    return r;
+  };
+  const mapNew = (): Record<ProcessKey, number> => {
+    const r: Record<ProcessKey, number> = { Decant: cartons, Loadfill: 0, Packaway: 0, Digital: 0, Online: online, Backfill: 0 };
+    r.Loadfill += chCartons.Demand + chCartons["Non-demand"] * 0.2;
+    r.Packaway += chCartons["Non-demand"] * 0.8;
+    const extra = chCartons["New lines"] + chCartons.Markup + chCartons.Clearance + chCartons.LP;
+    r.Digital += extra * 0.7 + chCartons.OMS;
+    r.Loadfill += extra * 0.3;
+    return r;
+  };
+  const curUnits = mapCur();
+  const newUnits = mapNew();
+  const mult = (p: ProcessKey, isNew: boolean) => ISSUES.reduce((m, it) => m * (issues[it.id] ? 1 + (it.impact[p] || 0) * (isNew ? 1 - mitigation : 1) : 1), 1);
+  const hours = (cfg: Record<ProcessKey, ProcCfg>, u: Record<ProcessKey, number>, isNew: boolean) => PROCS.reduce((s, p) => s + (cfg[p].useRoster ? cfg[p].roster : (cfg[p].rate * (cfg[p].unit === "online" ? online : u[p]) / 1000)) * mult(p, isNew), 0);
+  const curHours = hours(currentCfg, curUnits, false);
+  const newHours = hours(newCfg, newUnits, true);
+  const benefit = Math.max(0, curHours - newHours);
+  return { cartons, online, chCartons, curUnits, newUnits, curHours, newHours, benefit, savings: benefit * inputs.hourlyRate };
+}
+
+function HBar({ label, a, b }: { label: string; a: number; b: number }) {
+  const t = Math.max(a, b, 1), pa = Math.round((a / t) * 100), pb = Math.round((b / t) * 100);
+  return (
+    <div className="grid grid-cols-12 gap-3 items-center text-sm">
+      <div className="col-span-3"><div className="font-medium text-slate-800">{label}</div><div className="text-[11px] text-slate-500">Hours comparison</div></div>
+      <div className="col-span-9 space-y-1.5">
+        <div className="flex items-center gap-2"><span className="text-[11px] px-2 py-0.5 rounded-full bg-sky-100 text-sky-700">Current: {fmt(Math.round(a))}</span><span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">New: {fmt(Math.round(b))}</span><span className="ml-auto text-[11px] px-2 py-0.5 rounded bg-slate-100 text-slate-700">Δ {fmt(Math.round(b - a))}</span></div>
+        <div className="flex items-center gap-3">
+          <div className="h-2 grow rounded bg-slate-200 overflow-hidden relative"><div className="h-2 bg-sky-500" style={{ width: pa + "%" }} /><div className="absolute -top-5 left-0 text-[11px] text-slate-500">Current</div></div>
+          <div className="h-2 grow rounded bg-slate-200 overflow-hidden relative"><div className="h-2 bg-emerald-500" style={{ width: pb + "%" }} /><div className="absolute -top-5 left-0 text-[11px] text-slate-500">New</div></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PercentSlider({ label, value, onChange, maxLeft }: { label: string; value: number; onChange: (v: number) => void; maxLeft: number }) {
+  const pct = Math.round(clamp(value) * 100), maxPct = Math.round(clamp(maxLeft) * 100), base = label.replace(" %", ""), color = NODE_COLORS[base] || "#94a3b8";
+  return (
+    <div className="space-y-2 p-2 rounded-lg border bg-white">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }} /><div className="text-sm">{base}</div></div>
+        <div className="flex items-center gap-2"><Input className="h-7 w-16 text-right" type="number" value={String(pct)} onChange={(e)=> onChange(clamp(Number(e.target.value||0)/100, 0, maxPct/100))} /><span className="text-xs text-slate-500">%</span></div>
+      </div>
+      <Slider value={[pct]} max={maxPct} step={1} onValueChange={(v) => onChange(clamp((v[0] || 0) / 100, 0, maxPct/100))} />
+      <div className="flex gap-2"><Button variant="outline" className="h-7 px-2" onClick={() => onChange(clamp(value - 0.01, 0, maxPct/100))}>-1%</Button><Button variant="outline" className="h-7 px-2" onClick={() => onChange(clamp(value + 0.01, 0, maxPct/100))}>+1%</Button></div>
+    </div>
+  );
+}
+
+function NumInput({ label, val, set, step = 1 }: { label: string; val: number; set: (n: number) => void; step?: number }) {
+  return (<div className="space-y-1"><Label className="text-xs text-slate-600">{label}</Label><Input type="number" step={step} value={String(val)} onChange={(e) => set(Number(e.target.value || 0))} className="h-8" /></div>);
+}
 
 export default function Page() {
-  const [hourlyRate, setHourlyRate] = useState(35);
-  const [storeHours, setStoreHours] = useState<number>(1200);
-  const [params, setParams] = useState<Record<string, number>>({ ...RAW_DATA.scenario_params });
-  const [issuesEnabled, setIssuesEnabled] = useState<Record<string, boolean>>({});
+  const [inputs, setInputs] = useState(DEFAULT_INPUTS);
+  const [split, setSplit] = useState<Record<CatKey, number>>(DEFAULT_SPLIT);
+  const [issues, setIssues] = useState<Record<string, boolean>>({ late: false, non_dem: false, roster: false });
   const [mitigation, setMitigation] = useState(0.5);
-  const [bump, setBump] = useState(0);
-  const [calibrate, setCalibrate] = useState(true);
-  const [issueDefs, setIssueDefs] = useState<Issue[]>(ISSUE_LIBRARY);
-  const [stores, setStores] = useState(270);
-  const [weeks, setWeeks] = useState(52);
-  const [fteHours, setFteHours] = useState(38);
+  const [currentCfg, setCurrentCfg] = useState(DEFAULT_CURRENT);
+  const [newCfg, setNewCfg] = useState(DEFAULT_NEW);
 
-  const baseProcs = useMemo(() => uniq([...Object.keys(RAW_DATA.rates_per_1000), ...Object.keys(RAW_DATA.rostered_hours)].map(alias)).sort(), []);
-  const [cfg, setCfg] = useState<Record<string, ProcCfg>>(() => Object.fromEntries(baseProcs.map(p => [p, defaultCfg(p)])));
-  const calc = useModel(RAW_DATA, { hourlyRate, params, issuesEnabled, issues: issueDefs, mitigation, calibrate, storeHours, cfg, bump });
-  const { shares, total, remaining } = useMemo(() => sharesFrom(params, RAW_DATA.scenario_params), [params]);
+  const totals = useTotals(inputs, split, currentCfg, newCfg, issues, mitigation);
+  const totalSplit = CAT_KEYS.reduce((a, k) => a + (split[k] || 0), 0);
+  const leftFor = (k: CatKey) => clamp(1 - (totalSplit - (split[k] || 0)));
 
-  const network = useMemo(() => { const wh = Math.max(0, calc.benefitHours) * Math.max(0, stores); const ws = Math.max(0, calc.savings) * Math.max(0, stores); return { weeklyHours: wh, weeklySavings: ws, annualSavings: ws * Math.max(0, weeks), fteEq: fteHours > 0 ? wh / fteHours : 0 } }, [calc.benefitHours, calc.savings, stores, weeks, fteHours]);
+  const procRows = PROCS.map((p) => ({
+    name: PROC_LABEL(p),
+    current: currentCfg[p].useRoster ? currentCfg[p].roster : (currentCfg[p].rate * (currentCfg[p].unit === "online" ? totals.online : totals.curUnits[p]) / 1000),
+    next: newCfg[p].useRoster ? newCfg[p].roster : (newCfg[p].rate * (newCfg[p].unit === "online" ? totals.online : totals.newUnits[p]) / 1000),
+  }));
 
-  const currentH = calc.totals.current, newH = calc.totals.new, deltaH = currentH - newH, pctSaved = currentH > 0 ? deltaH / currentH : 0;
-  const procList = useMemo(() => uniq([...baseProcs, ...calc.rows.map(r => r.process)]), [baseProcs, calc.rows]);
-  const processColors = useMemo(() => { const m: Record<string, string> = {}; procList.forEach((p, i) => m[p] = ["#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#8b5cf6", "#0ea5e9", "#10b981", "#eab308", "#f43f5e"][i % 9]); return m }, [procList]);
-  const barData = useMemo(() => calc.rows.map(r => ({ name: r.process, current: r.current, new: r.new })), [calc.rows]);
-  const distData = useMemo(() => { const ct = calc.totals.current || 1, nt = calc.totals.new || 1, cur: Record<string, number | string> = { name: "Current" }, nw: Record<string, number | string> = { name: "New" }; for (const r of calc.rows) { cur[r.process] = r.current / ct; nw[r.process] = r.new / nt } return [cur, nw] }, [calc.rows, calc.totals]);
+  const benefitRounded = Math.round(totals.benefit), savingsRounded = Math.round(totals.savings);
 
-  const cartonSankey = useMemo(() => {
-    const cartons = Number(RAW_DATA.inputs?.["Cartons Delivered"] ?? 0) || 0, dem = (shares["Demand %"] || 0) + (remaining || 0);
-    const cats: [string, string, number][] = [["Demand %", "Demand", dem], ["Non-demand %", "Non‑demand", shares["Non-demand %"] || 0], ["Markup %", "Markup", shares["Markup %"] || 0], ["Clearance %", "Clearance", shares["Clearance %"] || 0], ["New lines %", "New lines", shares["New lines %"] || 0], ["LP %", "LP", shares["LP %"] || 0], ["OMS %", "OMS", shares["OMS %"] || 0]];
-    const dest: Record<string, string> = { Demand: "Loadfill", "Non‑demand": "Packaway", Markup: "Digital Tasks", Clearance: "Digital Tasks", "New lines": "Digital Tasks", LP: "Digital Tasks", OMS: "Digital Tasks" };
-    const names = ["Cartons Delivered", "Decant", ...cats.map(c => c[1]), "Loadfill", "Packaway", "Digital Tasks"], nodes = names.map(n => ({ name: n }));
-    const id = (n: string) => names.indexOf(n);
-    const links: SankeyLinkDatum[] = [{ source: id("Cartons Delivered"), target: id("Decant"), value: Math.max(0.01, cartons) }];
-    for (const [, lab, s] of cats) { const v = Math.max(0, cartons * Number(s)); if (v > 0) links.push({ source: id("Decant"), target: id(lab), value: Math.max(0.01, v) }) }
-    for (const [, lab, s] of cats) { const v = Math.max(0, cartons * Number(s)); if (v > 0) links.push({ source: id(lab), target: id(dest[lab] || "Loadfill"), value: Math.max(0.01, v) }) }
-    const flowRows: FlowRow[] = cats.map(([, lab, s]) => ({ channel: lab, cartons: Math.max(0, cartons * Number(s)), pct: Math.max(0, Number(s)), dest: dest[lab] || "Loadfill" }));
-    return { nodes, links, flowRows };
-  }, [shares, remaining, bump]);
-
-  useEffect(() => {
-    const hs = calc.totals.current - calc.totals.new; console.assert(Math.abs(hs - calc.benefitHours) < 1e-6, "benefit calc");
-    const cat = sharesFrom(params, RAW_DATA.scenario_params); console.assert(cat.total <= 1 + 1e-9, "categories >100% (normalized)");
-    const back = cfg["Backfill"]; if (back) console.assert(back.ex === 0 && back.oms === 0, "Backfill unaffected by extras/OMS");
-    console.assert(!calc.rows.some(r => r.process === "Sequence"), "Sequence->Loadfill only");
-    console.assert(fmt(undefined) === "0" && fmt(null) === "0", "fmt guard");
-  }, [calc, params, cfg]);
-
-  const otherScenarioKeys = useMemo(() => Object.keys(RAW_DATA.scenario_params).filter(k => !(CAT_KEYS as readonly string[]).includes(k)), []);
-  const removeImpact = (id: string, proc: string) => { setIssueDefs(p => p.map(it => it.id === id ? { ...it, impact: Object.fromEntries(Object.entries(it.impact).filter(([k]) => alias(k) !== proc)) } : it)); setBump(x => x + 1) };
+  const DESTS: ProcessKey[] = ["Loadfill","Packaway","Digital","Online","Backfill"];
+  const per1k = Object.fromEntries(DESTS.map((p)=>{
+    const base = newCfg[p].rate * (newCfg[p].unit === "online" ? (totals.online / Math.max(1, totals.cartons)) : 1);
+    const multNew = ISSUES.reduce((m, it) => m * (issues[it.id] ? 1 + (it.impact[p] || 0) * (1 - mitigation) : 1), 1);
+    return [p, base * multNew];
+  })) as Record<ProcessKey, number>;
+  const per1kMax = Math.max(...DESTS.map(p => per1k[p] || 0), 1);
 
   return (
-    <div className="w-full min-h-screen bg-gradient-to-b from-slate-50 to-white p-6">
-      <style>{FLOW_CSS}</style>
-      <div className="max-w-7xl mx-auto flex items-center justify-between gap-4 mb-6">
-        <div className="flex items-center gap-3"><Factory className="w-8 h-8 text-slate-700" /><h1 className="text-2xl font-semibold">Kmart Store Operating Model</h1></div>
-        <Button variant="ghost" onClick={() => { setIssuesEnabled({}); setParams({ ...RAW_DATA.scenario_params }); setMitigation(0.5); setIssueDefs(ISSUE_LIBRARY); setCfg(Object.fromEntries(baseProcs.map(p => [p, defaultCfg(p)]))); setHourlyRate(35); setStoreHours(1200); setStores(270); setWeeks(52); setFteHours(38); setBump(x => x + 1) }}>Reset</Button>
-      </div>
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white p-6">
+      <div className="max-w-6xl mx-auto space-y-6">
+        <div className="flex items-center gap-3"><Factory className="w-6 h-6 text-slate-700" /><h1 className="text-xl font-semibold">Kmart Store Operating Model</h1></div>
 
-      <div className="max-w-7xl mx-auto grid md:grid-cols-12 gap-4 mb-6 items-stretch">
-        <Card className="shadow-sm md:col-span-4 overflow-hidden h-full min-h-[132px] border-0 text-white bg-gradient-to-br from-emerald-600 via-emerald-500 to-emerald-400"><CardContent className="p-0 bg-transparent"><motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="h-full w-full p-4 md:p-5"><div className="flex items-center justify-between"><div><div className="text-xs uppercase tracking-wide opacity-90">Estimated Benefit (per store)</div><div className="mt-1 text-3xl font-semibold">{fmt(calc.benefitHours)}</div><div className="opacity-90">≈ A${fmt(calc.savings)} / week</div></div><TrendingDown className="w-10 h-10 opacity-80" /></div></motion.div></CardContent></Card>
+        <div className="grid md:grid-cols-4 gap-4">
+          <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-sky-600 via-sky-500 to-sky-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Total Current Hours</div><div className="text-3xl font-semibold">{fmt(Math.round(totals.curHours))}</div></CardContent></Card>
+          <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-emerald-600 via-emerald-500 to-emerald-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Total New Model Hours</div><div className="text-3xl font-semibold">{fmt(Math.round(totals.newHours))}</div></CardContent></Card>
+          <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-violet-600 via-violet-500 to-violet-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Estimated Benefit (per store)</div><div className="text-3xl font-semibold">{fmt(benefitRounded)} hrs</div><div className="opacity-90">≈ A${fmt(savingsRounded)}/week</div></CardContent></Card>
+          <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-rose-600 via-rose-500 to-rose-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Network Benefit (270 stores)</div><div className="text-3xl font-semibold">{fmt(Math.round(benefitRounded * inputs.stores))} hrs</div><div className="opacity-90">≈ A${fmt(Math.round(savingsRounded * inputs.stores))}/week</div></CardContent></Card>
+        </div>
 
-        <Card className="shadow-sm md:col-span-4 overflow-hidden h-full min-h-[132px] border-0 text-white bg-gradient-to-br from-sky-600 via-sky-500 to-sky-400"><CardContent className="p-0 bg-transparent"><motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="h-full w-full p-4 md:p-5"><div className="flex items-start justify-between"><div><div className="text-[10px] uppercase tracking-wide opacity-90">Total Current Hours</div><div className="mt-1 text-3xl font-semibold">{fmt(currentH)}</div><div className="mt-1 text-sm opacity-90 flex items-center gap-1"><ArrowDownRight className="w-4 h-4" />to New {fmt(newH)} (−{fmt(deltaH)} / −{Math.round(pctSaved * 100)}%)</div></div></div></motion.div></CardContent></Card>
+        <Tabs defaultValue="overview">
+          <TabsList className="grid grid-cols-2 w-full md:w-auto"><TabsTrigger value="overview">Overview</TabsTrigger><TabsTrigger value="explorer">Process Explorer</TabsTrigger></TabsList>
 
-        <Card className="shadow-sm md:col-span-4 overflow-hidden h-full min-h-[132px] border-0 text-white bg-gradient-to-br from-teal-600 via-teal-500 to-teal-400"><CardContent className="p-0 bg-transparent"><motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="h-full w-full p-4 md:p-5"><div className="flex items-start justify-between"><div><div className="text-[10px] uppercase tracking-wide opacity-90">Total New Model Hours</div><div className="mt-1 text-3xl font-semibold">{fmt(newH)}</div><div className="mt-1 text-sm opacity-90">Saved {fmt(deltaH)} hrs (−{Math.round(pctSaved * 100)}%) vs current</div></div></div></motion.div></CardContent></Card>
-
-        <Card className="shadow-sm md:col-span-12 overflow-hidden h-full min-h-[132px] border-0 bg-transparent"><CardContent className="p-0 bg-transparent"><div className="h-full w-full bg-gradient-to-br from-indigo-600 via-indigo-500 to-indigo-400 text-white p-4"><div className="flex items-start justify-between gap-4"><div><div className="text-xs uppercase tracking-wide opacity-90">Network benefit ({stores} stores)</div><div className="mt-1 text-3xl font-semibold">{fmt(network.weeklyHours)} hrs / wk</div><div className="opacity-90">≈ A${fmt(network.weeklySavings)} / wk</div><div className="opacity-90 flex items-center gap-1 mt-1"><CalendarDays className="w-4 h-4" />≈ A${fmt(network.annualSavings)} / yr</div></div><div className="space-y-2 min-w-[200px]"><div className="text-[10px] uppercase opacity-90">Assumptions</div><div className="flex items-center gap-2"><Label className="text-xs w-16">Stores</Label><Input type="number" className="h-8 bg-white/95 text-slate-900 placeholder-slate-600 border-white/40" value={stores} onChange={e => setStores(Math.max(0, parseInt(e.target.value || "0", 10) || 0))} /></div><div className="flex items-center gap-2"><Label className="text-xs w-16">Weeks/yr</Label><Input type="number" className="h-8 bg-white/95 text-slate-900 placeholder-slate-600 border-white/40" value={weeks} onChange={e => setWeeks(Math.max(1, parseInt(e.target.value || "0", 10) || 52))} /></div></div></div></div></CardContent></Card>
-      </div>
-
-      <div className="max-w-7xl mx-auto">
-        <Tabs defaultValue="overview" className="w-full">
-          <TabsList className="mb-4">{([ ["overview","Overview"], ["process","Process Explorer"], ["issues","Issue Effects"] ] as [string,string][]).map(([v, l]) => <TabsTrigger key={v} value={v}>{l}</TabsTrigger>)}</TabsList>
-
-          <TabsContent value="overview">
-            <div className="grid lg:grid-cols-2 gap-6">
-              <Card className="shadow-sm"><CardContent className="p-4"><div className="flex items-center justify-between mb-2"><div className="text-sm font-medium">Current vs New hours by process</div></div><div className="h-[360px]"><BarCompare data={barData} /></div></CardContent></Card>
-              <Card className="shadow-sm"><CardContent className="p-4"><div className="text-sm font-medium mb-2">Workload distribution by process (100%)</div><div className="h-[360px]"><DistStack data={distData} keys={procList} colorMap={processColors} /></div></CardContent></Card>
-            </div>
-
-            <div className="mt-6 grid lg:grid-cols-3 gap-6">
-              <Card className="shadow-sm lg:col-span-2"><CardContent className="p-4"><div className="flex items-center justify-between mb-2"><div className="text-sm font-medium">Carton flow</div></div><div className="h-[520px]"><CartonSankey nodes={cartonSankey.nodes} links={cartonSankey.links} /></div></CardContent></Card>
-              <Card className="shadow-sm lg:col-span-1"><CardContent className="p-4"><div className="text-sm font-medium mb-2">Channel breakdown</div><div className="border rounded-lg overflow-hidden"><table className="w-full text-sm"><thead className="bg-slate-50"><tr><th className="text-left p-2">Channel</th><th className="text-right p-2">Cartons</th><th className="text-right p-2">Share</th><th className="text-left p-2">→ Dest</th></tr></thead><tbody>{cartonSankey.flowRows.map((r: FlowRow) => (
-                <tr key={r.channel} className="border-t">
-                  <td className="p-2"><div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: NODE_COLORS[r.channel] || "#94a3b8" }} /> {r.channel}</div></td>
-                  <td className="p-2 text-right">{fmt(r.cartons)}</td>
-                  <td className="p-2 text-right">{Math.round((r.pct || 0) * 100)}%</td>
-                  <td className="p-2">{r.dest}</td>
-                </tr>
-              ))}</tbody></table></div></CardContent></Card>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="process">
-            <Card className="shadow-sm"><CardContent className="p-4 space-y-6">
-              <div className="text-sm font-medium">Per‑process parameters — core</div>
-              <div className="overflow-x-auto"><table className="min-w-full text-sm"><thead className="text-left text-slate-500"><tr><th className="py-2 pr-4">Process</th><th className="py-2 pr-4">Unit</th><th className="py-2 pr-4">Use roster</th><th className="py-2 pr-4">Rostered hrs</th><th className="py-2 pr-4">Rate /1k (Current)</th><th className="py-2 pr-4">Rate /1k (New)</th></tr></thead><tbody>{procList.map(p => { const c = (cfg[p] || defaultCfg(p)); let rH = getNum(RAW_DATA.rostered_hours, p, 0); if (p === "Loadfill") rH = getNum(RAW_DATA.rostered_hours, "Loadfill", getNum(RAW_DATA.rostered_hours, "Sequence", 0)); const rC = getNum(RAW_DATA.rates_per_1000, p, 0), rN = getNum(RAW_DATA.new_rates_per_1000, p, rC); return (
-                <tr key={p} className="border-t">
-                  <td className="py-2 pr-4 font-medium whitespace-nowrap">{p}</td>
-                  <td className="py-2 pr-4"><select className="border rounded-md px-2 py-1 text-sm" value={c.unit} onChange={e => { const u = parseUnit(e.target.value); const next: ProcCfg = { ...c, unit: u }; setCfg(s => ({ ...s, [p]: next })); setBump(x => x + 1); }}><option value="cartons">Cartons</option><option value="online">Online</option></select></td>
-                  <td className="py-2 pr-4"><Switch checked={!!c.useRoster} onCheckedChange={on => { const next: ProcCfg = { ...c, useRoster: on }; setCfg(s => ({ ...s, [p]: next })); setBump(x => x + 1); }} /></td>
-                  <td className="py-2 pr-4"><Num value={rH} onChange={n => { if (p === "Loadfill") { setNum(RAW_DATA.rostered_hours, "Loadfill", n); delete RAW_DATA.rostered_hours["Sequence"]; } else setNum(RAW_DATA.rostered_hours, p, n); setBump(x => x + 1); }} /></td>
-                  <td className="py-2 pr-4"><Num value={rC} onChange={n => { setNum(RAW_DATA.rates_per_1000, p, n); setBump(x => x + 1); }} /></td>
-                  <td className="py-2 pr-4"><Num value={rN} onChange={n => { setNum(RAW_DATA.new_rates_per_1000, p, n); setBump(x => x + 1); }} /></td>
-                </tr>
-              ) })}</tbody></table></div>
-
-              <div className="text-sm font-medium">Per‑process parameters — advanced effects</div>
-              <div className="overflow-x-auto"><table className="min-w-full text-xs"><thead className="text-left text-slate-500"><tr><th className="py-2 pr-4">Process</th><th className="py-2 pr-4">Demand</th><th className="py-2 pr-4">Backfill driver</th><th className="py-2 pr-4">Non‑demand (−1..1)</th><th className="py-2 pr-4">Extras (−1..1)</th><th className="py-2 pr-4">OMS (0..1)</th></tr></thead><tbody>{procList.map(p => { const c = (cfg[p] || defaultCfg(p)); const setProp = (key: keyof ProcCfg, v: ProcCfg[keyof ProcCfg]) => { const next = { ...c, [key]: v } as ProcCfg; setCfg(s => ({ ...s, [p]: next })); setBump(x => x + 1); }; return (
-                <tr key={p} className="border-t">
-                  <td className="py-2 pr-4 font-medium whitespace-nowrap">{p}</td>
-                  <td className="py-2 pr-4"><Switch checked={!!c.demand} onCheckedChange={on => setProp("demand", on)} /></td>
-                  <td className="py-2 pr-4"><Switch checked={!!c.backfill} onCheckedChange={on => setProp("backfill", on)} /></td>
-                  <td className="py-2 pr-4"><Num className="w-24" value={Number(c.nd)} step={0.05} min={-1} max={1} onChange={n => setProp("nd", cap(n, -1, 1))} /></td>
-                  <td className="py-2 pr-4"><Num className="w-24" value={Number(c.ex)} step={0.05} min={-1} max={1} onChange={n => setProp("ex", cap(n, -1, 1))} /></td>
-                  <td className="py-2 pr-4"><Num className="w-24" value={Number(c.oms)} step={0.05} min={0} max={1} onChange={n => setProp("oms", cap(n, 0, 1))} /></td>
-                </tr>
-              ) })}</tbody></table></div>
-
-              <div className="text-sm font-medium">Scenario inputs</div>
-              <div className="grid md:grid-cols-3 gap-4">
-                {Object.entries(RAW_DATA.inputs).map(([k, v]) => (
-                  <div key={k} className="space-y-1"><Label className="text-xs">{k}</Label><Num value={Number(v)} onChange={n => { setNum(RAW_DATA.inputs, k, n); setBump(x => x + 1); }} /></div>
-                ))}
-                {otherScenarioKeys.map(k => (
-                  <div key={k} className="space-y-1"><Label className="text-xs">{k}</Label><Num value={Number((((params[k] ?? (RAW_DATA.scenario_params as Record<string, number>)[k]) || 0) * 100).toFixed(1))} step={0.1} onChange={pct => { setParams(p => ({ ...p, [k]: cap((isNaN(pct) ? 0 : pct) / 100) })); setBump(x => x + 1); }} /></div>
-                ))}
-                <div className="space-y-1"><Label className="text-xs">Calibrate derived to store hours</Label><div className="flex items-center gap-2"><Switch checked={calibrate} onCheckedChange={setCalibrate} /></div></div>
-                <div className="space-y-1"><Label className="text-xs">Avg Hourly Rate (A$)</Label><Num value={hourlyRate} step={1} onChange={n => setHourlyRate(isNaN(n) ? 0 : n)} /></div>
-                <div className="space-y-1"><Label className="text-xs">Weekly Store Hours (for calibration)</Label><Num value={storeHours} step={1} onChange={n => setStoreHours(isNaN(n) ? 0 : n)} /></div>
+          <TabsContent value="overview" className="space-y-6">
+            <Card className="shadow-sm"><CardContent className="p-4">
+              <div className="text-sm font-medium mb-3">Model inputs</div>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <NumInput label="Cartons delivered (weekly)" val={inputs.cartonsDelivered} set={(n)=>setInputs(s=>({...s,cartonsDelivered:Math.max(0,n)}))} />
+                <NumInput label="Online units (weekly)" val={inputs.onlineUnits} set={(n)=>setInputs(s=>({...s,onlineUnits:Math.max(0,n)}))} />
+                <NumInput label="Average hourly rate (AHR)" val={inputs.hourlyRate} set={(n)=>setInputs(s=>({...s,hourlyRate:Math.max(0,n)}))} step={0.5} />
+                <NumInput label="Stores (network)" val={inputs.stores} set={(n)=>setInputs(s=>({...s,stores:Math.max(1,n)}))} />
               </div>
             </CardContent></Card>
+            <Card className="shadow-sm"><CardContent className="p-4 space-y-6">
+              <div>
+                <div className="text-sm font-medium mb-2">Carton flow</div>
+                <SankeySimple cartons={totals.cartons} chCartons={totals.chCartons} unitsNew={totals.newUnits} />
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between"><div className="text-sm font-medium">Category split</div><div className="text-xs text-slate-600">Remaining: {Math.max(0, 100 - Math.round(totalSplit*100))}%</div></div>
+                <div className="h-2 rounded bg-slate-200 overflow-hidden flex">
+                  {CAT_KEYS.map((k)=>{ const w = Math.round((split[k]||0)*100); const base = k.replace(" %",""); const c = NODE_COLORS[base] || "#cbd5e1"; return <div key={k} style={{width: w + "%", backgroundColor: c}} /> })}
+                </div>
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {CAT_KEYS.map((k)=>{ const left = leftFor(k); return (<PercentSlider key={k} label={k} value={split[k]} maxLeft={left} onChange={(v)=>setSplit(s=>({...s,[k]: clamp(v, 0, left)}))} />); })}
+                </div>
+                <div className="text-xs text-slate-500">Total: {Math.round(totalSplit*100)}%</div>
+              </div>
+
+              <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                {(["Loadfill","Packaway","Digital","Online","Backfill"] as ProcessKey[]).map((p)=>{
+                  const val = Math.round(per1k[p] || 0); const color = NODE_COLORS[p]; const w = Math.min(100, Math.round(((per1k[p]||0)/per1kMax)*100));
+                  return (
+                    <div key={p} className="rounded-lg border p-3">
+                      <div className="flex items-center gap-2 mb-2"><span className="w-2.5 h-2.5 rounded-full" style={{backgroundColor: color}} /><div className="text-sm font-medium">{PROC_LABEL(p)}</div></div>
+                      <div className="text-[11px] text-slate-500 mb-1">Hours / 1000 cartons</div>
+                      <div className="text-xl font-semibold">{fmt(val)}</div>
+                      <div className="h-1.5 mt-2 rounded bg-slate-200 overflow-hidden"><div className="h-1.5" style={{width: `${w}%`, backgroundColor: color, opacity:.6}} /></div>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent></Card>
+
+            <Card className="shadow-sm"><CardContent className="p-4 space-y-3">
+              <div className="text-sm font-medium">Issue scenarios</div>
+              <div className="grid md:grid-cols-3 gap-4">
+                {ISSUES.map(it=> (
+                  <div key={it.id} className="flex items-center justify-between border rounded-lg p-3"><div className="text-sm">{it.name}</div><Switch checked={!!issues[it.id]} onCheckedChange={(v)=>setIssues(s=>({...s,[it.id]: v}))} /></div>
+                ))}
+              </div>
+              <div className="pt-2"><div className="text-xs mb-1">Mitigation (New model)</div><Slider value={[Math.round(mitigation*100)]} step={1} onValueChange={(v)=>setMitigation(clamp((v[0]||0)/100))} /></div>
+            </CardContent></Card>
           </TabsContent>
 
-          <TabsContent value="issues">
-            <Card className="shadow-sm"><CardContent className="p-4 space-y-4">
-              <div className="text-sm font-medium">Per‑issue effects</div>
-              {issueDefs.map(iss => { const procs = uniq([...Object.keys(iss.impact).map(alias), ...baseProcs]); return (
-                <div key={iss.id} className="border rounded-lg p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="font-medium">{iss.name}</div>
-                    <div className="flex items-center gap-3"><span className="text-xs text-slate-500">Enabled</span><Switch checked={!!issuesEnabled[iss.id]} onCheckedChange={on => { setIssuesEnabled(s => ({ ...s, [iss.id]: on })); setBump(x => x + 1); }} /></div>
-                  </div>
-                  <div className="overflow-x-auto"><table className="min-w-full text-xs"><thead><tr><th className="text-left p-2">Process</th><th className="text-left p-2">Impact %</th><th className="text-left p-2">Current ×</th><th className="text-left p-2">New × (mitigated)</th><th /></tr></thead><tbody>
-                    {procs.map(p => { const k = alias(p), b = iss.impact[k] || 0, cur = 1 + b, newer = 1 + b * (1 - mitigation); return (
-                      <tr key={k} className="border-t">
-                        <td className="p-2 font-medium whitespace-nowrap">{k}</td>
-                        <td className="p-2"><div className="flex items-center gap-2"><Num className="w-24" value={Math.round(b * 100)} onChange={pct => { const v = Math.max(0, pct) / 100; setIssueDefs(prev => prev.map(it => it.id === iss.id ? { ...it, impact: { ...it.impact, [k]: v } } : it)); setBump(x => x + 1); }} /><span className="text-slate-500">%</span></div></td>
-                        <td className="p-2">{cur.toFixed(2)}×</td>
-                        <td className="p-2">{newer.toFixed(2)}×</td>
-                        <td className="p-2 text-right">{iss.impact[k] !== undefined && (<Button variant="ghost" size="sm" onClick={() => removeImpact(iss.id, k)}>Remove</Button>)}</td>
-                      </tr>
-                    ) })}
-                    <tr className="border-t"><td className="p-2" colSpan={5}><div className="flex flex-wrap items-center gap-2"><Label className="text-xs">Add process impact:</Label><select className="border rounded-md px-2 py-1 text-sm" onChange={e => { const p = alias(e.target.value); if (!p) return; if ((issueDefs.find(i => i.id === iss.id)?.impact ?? {})[p] == null) { setIssueDefs(prev => prev.map(it => it.id === iss.id ? { ...it, impact: { ...it.impact, [p]: 0.05 } } : it)); setBump(x => x + 1); } e.currentTarget.selectedIndex = 0; }}><option value="">Select process…</option>{baseProcs.map(p => <option key={p} value={p}>{p}</option>)}</select></div></td></tr>
-                  </tbody></table></div>
-                </div>
-              ) })}
-            </CardContent></Card>
+          <TabsContent value="explorer" className="space-y-6">
+            <Card className="shadow-sm"><CardContent className="p-4 space-y-4"><div className="text-sm font-medium">Per‑process parameters (Current)</div><ProcTable cfg={currentCfg} setCfg={setCurrentCfg} /></CardContent></Card>
+            <Card className="shadow-sm"><CardContent className="p-4 space-y-4"><div className="text-sm font-medium">Per‑process parameters (New)</div><ProcTable cfg={newCfg} setCfg={setNewCfg} /></CardContent></Card>
           </TabsContent>
         </Tabs>
       </div>
+    </div>
+  );
+}
 
-      <div className="max-w-7xl mx-auto grid lg:grid-cols-3 gap-4 mt-6">
-        <Card className="shadow-sm lg:col-span-2"><CardContent className="p-4 space-y-4">
-          <div className="flex items-center justify-between text-sm"><div className="font-semibold">Category split</div><div className="flex items-center gap-3"><span className="text-slate-600">{Math.round(total * 100)}%</span><span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-xs">Remaining {Math.round(remaining * 100)}%</span></div></div>
-          <div className="grid md:grid-cols-2 gap-6">
-            {(CAT_KEYS as readonly string[]).map((k) => {
-              const cur = params[k] ?? (RAW_DATA.scenario_params as Record<string, number>)[k];
-              const others = (CAT_KEYS as readonly string[]).filter(c => c !== k).reduce((s, c) => s + (params[c] ?? (RAW_DATA.scenario_params as Record<string, number>)[c] ?? 0), 0);
-              const absMax = Math.max(0, 1 - others);
-              const valueP = Math.round(cur * 100);
-              const maxP = Math.max(valueP, Math.round(absMax * 100));
-              const color = CAT_COLOR[k] || "#64748b";
-              return (
-                <div key={k} className="space-y-2">
-                  <div className="flex items-center justify-between"><Label className="text-sm">{k}</Label><div className="text-xs text-slate-600">{valueP}% <span className="text-slate-400">/ max {Math.round(absMax * 100)}%</span></div></div>
-                  <div className="h-2 bg-slate-200 rounded-full overflow-hidden"><div className="h-full" style={{ width: `${valueP}%`, backgroundColor: color }} /></div>
-                  <div className="flex items-center gap-2">
-                    <Button type="button" variant="outline" size="sm" onClick={() => { setParams(prev => { const curr = prev[k] ?? (RAW_DATA.scenario_params as Record<string, number>)[k] ?? 0; const othersA = (CAT_KEYS as readonly string[]).filter(c => c !== k).reduce((s, c) => s + (prev[c] ?? (RAW_DATA.scenario_params as Record<string, number>)[c] ?? 0), 0); const allowed = Math.max(0, 1 - othersA); const next = Math.max(0, Math.min(curr - 0.01, allowed)); return { ...prev, [k]: next }; }); setBump(x => x + 1); }}>-1%</Button>
-                    <Slider value={[valueP]} min={0} max={maxP} step={1} onValueChange={(arr) => { const nextP = (arr[0] ?? 0); setParams(prev => { const othersB = (CAT_KEYS as readonly string[]).filter(c => c !== k).reduce((s, c) => s + (prev[c] ?? (RAW_DATA.scenario_params as Record<string, number>)[c] ?? 0), 0); const allowed = Math.max(0, 1 - othersB); const next = Math.min(nextP / 100, allowed); return { ...prev, [k]: next }; }); setBump(x => x + 1); }} />
-                    <Button type="button" variant="outline" size="sm" onClick={() => { setParams(prev => { const curr = prev[k] ?? (RAW_DATA.scenario_params as Record<string, number>)[k] ?? 0; const othersC = (CAT_KEYS as readonly string[]).filter(c => c !== k).reduce((s, c) => s + (prev[c] ?? (RAW_DATA.scenario_params as Record<string, number>)[c] ?? 0), 0); const allowed = Math.max(0, 1 - othersC); const next = Math.min(curr + 0.01, allowed); return { ...prev, [k]: next }; }); setBump(x => x + 1); }}>+1%</Button>
-                  </div>
-                </div>
-              );
-            })}
+function ProcTable({ cfg, setCfg }: { cfg: Record<ProcessKey, ProcCfg>; setCfg: React.Dispatch<React.SetStateAction<Record<ProcessKey, ProcCfg>>> }) {
+  return (
+    <div className="grid md:grid-cols-2 gap-4">
+      {PROCS.map((p)=> (
+        <div key={p} className="border rounded-lg p-3 space-y-2">
+          <div className="text-sm font-medium">{PROC_LABEL(p)}</div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1"><Label className="text-xs">Unit</Label>
+              <div className="flex gap-2 text-xs">{(["cartons","online"] as Unit[]).map(u=> (<Button key={u} variant={cfg[p].unit===u?"default":"outline"} className="h-7 px-2" onClick={()=>setCfg(s=>({...s,[p]:{...s[p],unit:u}}))}>{u}</Button>))}</div>
+            </div>
+            <div className="space-y-1"><Label className="text-xs">Use roster</Label><div><Switch checked={cfg[p].useRoster} onCheckedChange={(v)=>setCfg(s=>({...s,[p]:{...s[p],useRoster:v}}))} /></div></div>
+            <NumInput label="Rate / 1000" val={cfg[p].rate} set={(n)=>setCfg(s=>({...s,[p]:{...s[p],rate:Math.max(0,n)}}))} />
+            <NumInput label="Roster hours" val={cfg[p].roster} set={(n)=>setCfg(s=>({...s,[p]:{...s[p],roster:Math.max(0,n)}}))} />
           </div>
-        </CardContent></Card>
+        </div>
+      ))}
+    </div>
+  );
+}
 
-        <Card className="shadow-sm"><CardContent className="p-4 space-y-3">
-          <div className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-amber-600" /><h2 className="font-semibold">Issue scenarios</h2></div>
-          <div className="space-y-3">
-            {issueDefs.map(iss => (
-              <div key={iss.id} className="flex items-center justify-between">
-                <div className="pr-4">
-                  <div className="font-medium">{iss.name}</div>
-                  <div className="text-xs text-slate-500">{iss.description}</div>
-                </div>
-                <Switch checked={!!issuesEnabled[iss.id]} onCheckedChange={on => { setIssuesEnabled(s => ({ ...s, [iss.id]: on })); setBump(x => x + 1); }} />
-              </div>
-            ))}
-          </div>
-          <div className="pt-2">
-            <div className="flex justify-between items-center mb-2"><Label className="text-sm">New model mitigation</Label><span className="text-sm text-slate-600">{Math.round(mitigation * 100)}%</span></div>
-            <Slider value={[Math.round(mitigation * 100)]} max={100} step={5} onValueChange={arr => { setMitigation((arr[0] ?? 0) / 100); setBump(x => x + 1); }} />
-          </div>
-        </CardContent></Card>
-      </div>
+function SankeySimple({ cartons, chCartons, unitsNew }: { cartons: number; chCartons: Record<string, number>; unitsNew: Record<ProcessKey, number> }) {
+  const W = 1200, H = 520;
+  const stageX = [Math.round(W*0.06), Math.round(W*0.36), Math.round(W*0.75)];
+  const scale = (v: number) => Math.max(2, Math.sqrt(v) * 0.25);
+  const channels = ["Demand","Non-demand","Markup","Clearance","New lines","LP","OMS"] as const;
+  const dests: ProcessKey[] = ["Loadfill","Packaway","Digital","Online","Backfill"];
+  const labelDest = (d: ProcessKey)=> d === "Digital" ? "Digital Shopkeeping" : d;
+
+  const nodes: { x: number; y: number; w: number; h: number; label: string; value: number; color: string }[] = [];
+  nodes.push({ x: stageX[0], y: H/2-24, w: 14, h: 56, label: "Decant", value: cartons, color: NODE_COLORS.Decant });
+  channels.forEach((c, i)=> nodes.push({ x: stageX[1], y: 40 + i*64, w: 14, h: 34, label: c, value: chCartons[c], color: NODE_COLORS[c] }));
+  dests.forEach((d, i)=> nodes.push({ x: stageX[2] + (d==="Backfill"?100:0), y: 40 + i*78, w: 14, h: 38, label: labelDest(d), value: unitsNew[d], color: NODE_COLORS[d] }));
+
+  const links: { from: number; to: number; v: number; color: string }[] = [];
+  channels.forEach((c, i)=> {
+    const base = 1 + i, v = chCartons[c] || 0; if (v<=0) return;
+    const toIdx = (name: ProcessKey) => 1 + channels.length + dests.indexOf(name);
+    links.push({ from: 0, to: base, v, color: NODE_COLORS[c] });
+    const share: Partial<Record<ProcessKey, number>> = c === "Demand" ? { Loadfill: 1 } : c === "Non-demand" ? { Packaway: 1 } : c === "OMS" ? { Online: 1 } : { Digital: 1 };
+    Object.entries(share).forEach(([k, pct])=> links.push({ from: base, to: toIdx(k as ProcessKey), v: v * (pct || 0), color: NODE_COLORS[c] }));
+  });
+
+  const idxPack = 1 + channels.length + dests.indexOf("Packaway"), idxBack = 1 + channels.length + dests.indexOf("Backfill"), packV = unitsNew["Packaway"] || 0;
+  if (packV > 0) links.push({ from: idxPack, to: idxBack, v: packV, color: NODE_COLORS["Packaway"] });
+
+  const path = (a: {x:number;y:number}, b:{x:number;y:number}) => `M${a.x},${a.y} C ${(a.x+b.x)/2},${a.y} ${(a.x+b.x)/2},${b.y} ${b.x},${b.y}`;
+
+  return (
+    <div className="border rounded-lg p-3">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-[520px]">
+        <defs><style>{`@keyframes flow { to { stroke-dashoffset: -80; } }`}</style></defs>
+        {links.map((l, i)=>{ const a = nodes[l.from], b = nodes[l.to]; const y1 = a.y + a.h/2, y2 = b.y + b.h/2; const sw = scale(l.v); return (
+          <g key={i}>
+            <path d={path({x:a.x+a.w,y:y1},{x:b.x,y:y2})} fill="none" stroke={l.color} strokeOpacity={0.35} strokeWidth={sw} strokeLinecap="round" />
+            <path d={path({x:a.x+a.w,y:y1},{x:b.x,y:y2})} fill="none" stroke={l.color} strokeOpacity={0.9} strokeWidth={sw*0.9} strokeLinecap="round" strokeDasharray="40 40" style={{ animation: `flow ${Math.max(2, sw/1.2)}s linear infinite` }} />
+          </g>
+        );})}
+        {nodes.map((n, i)=> (
+          <g key={i}>
+            <rect x={n.x} y={n.y} width={n.w} height={n.h} rx={6} fill="#f8fafc" stroke={n.color} />
+            <text x={n.x + n.w + 8} y={n.y + n.h/2 - 2} fontSize={12} fill="#0f172a">{n.label}</text>
+            <text x={n.x + n.w + 8} y={n.y + n.h/2 + 12} fontSize={11} fill="#475569">{fmt(Math.round(n.value))} ctns</text>
+          </g>
+        ))}
+      </svg>
     </div>
   );
 }
