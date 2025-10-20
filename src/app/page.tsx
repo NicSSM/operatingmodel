@@ -9,19 +9,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import dynamic from "next/dynamic";
-
-type AnyProps = Record<string, unknown>;
-const dyn = (sel: (m: typeof import("recharts")) => unknown) =>
-  dynamic(async () => sel(await import("recharts")) as unknown as React.ComponentType<AnyProps>, { ssr: false });
-
-const ResponsiveContainer = dyn(m => m.ResponsiveContainer);
-const BarChart = dyn(m => m.BarChart);
-const Bar = dyn(m => m.Bar);
-const XAxis = dyn(m => m.XAxis);
-const YAxis = dyn(m => m.YAxis);
-const RTooltip = dyn(m => m.Tooltip);
-const SankeyComp = dyn(m => m.Sankey);
 import { Factory, AlertTriangle, TrendingDown, CalendarDays, ArrowDownRight } from "lucide-react";
 
 type Unit = "cartons" | "online";
@@ -44,6 +31,28 @@ type SankeyLinkDatum = { source: number; target: number; value: number };
 type FlowRow = { channel: string; cartons: number; pct: number; dest: string };
 
 type CSSVars = React.CSSProperties & Record<'--cycle', string>;
+
+type NumProps = { value: number; onChange: (n: number) => void; step?: number; min?: number; max?: number; className?: string };
+function Num({ value, onChange, step = 1, min = Number.NEGATIVE_INFINITY, max = Number.POSITIVE_INFINITY, className }: NumProps) {
+  const [txt, setTxt] = useState<string>(String(Number.isFinite(value) ? value : 0));
+  useEffect(() => setTxt(String(Number.isFinite(value) ? value : 0)), [value]);
+  const clamp = (n: number) => Math.max(min, Math.min(max, n));
+  const commit = () => { const n = Number(txt); const v = Number.isFinite(n) ? clamp(n) : (Number.isFinite(value) ? value : 0); setTxt(String(v)); onChange(v); };
+  return (
+    <Input
+      type="number"
+      inputMode="decimal"
+      className={`h-8 ${className || ""}`}
+      value={txt}
+      step={step}
+      min={Number.isFinite(min) ? min : undefined}
+      max={Number.isFinite(max) ? max : undefined}
+      onChange={(e) => setTxt(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === "Enter") { commit(); } }}
+    />
+  );
+}
 
 const NODE_COLORS: Record<string, string> = { "Cartons Delivered": "#1f2937", Decant: "#2563eb", Demand: "#16a34a", "Non‑demand": "#f59e0b", Markup: "#8b5cf6", Clearance: "#ef4444", "New lines": "#0ea5e9", LP: "#10b981", OMS: "#eab308", Loadfill: "#16a34a", Packaway: "#f59e0b", "Digital Tasks": "#0ea5e9", Online: "#0ea5e9", Backfill: "#334155" };
 
@@ -98,11 +107,75 @@ function useModel(raw: typeof RAW_DATA, opts: { hourlyRate: number; params: Reco
   }, [raw, hourlyRate, params, issuesEnabled, issues, mitigation, calibrate, storeHours, cfg]);
 }
 
-const Num = ({ value, onChange, step = 0.01, min, max, className }: { value?: number; onChange: (n: number) => void; step?: number; min?: number; max?: number; className?: string }) => (
-  <Input type="number" className={className} value={Number.isFinite(Number(value)) ? value : 0} step={step} min={min} max={max} onChange={e => onChange(parseFloat(e.target.value || "0"))} />
-);
+type RechartsMod = typeof import("recharts");
+function useRecharts(): RechartsMod | null {
+  const [mod, setMod] = useState<RechartsMod | null>(null);
+  useEffect(() => { let alive = true; (async () => { try { const m = await import("recharts"); if (alive) setMod(m); } catch (e) { console.error("Failed to load recharts", e); } })(); return () => { alive = false }; }, []);
+  return mod;
+}
 
-const TABS: [string, string][] = [["overview", "Overview"], ["process", "Process Explorer"], ["issues", "Issue Effects"]];
+function BarCompare({ data }: { data: { name: string; current: number; new: number }[] }) {
+  const M = useRecharts();
+  if (!M) return <div className="h-[360px] grid place-items-center text-slate-400 text-sm">Loading chart…</div>;
+  const RC = M.ResponsiveContainer as unknown as React.ComponentType<Record<string, unknown>>;
+  const BC = M.BarChart as unknown as React.ComponentType<Record<string, unknown>>;
+  const BarC = M.Bar as unknown as React.ComponentType<Record<string, unknown>>;
+  const X = M.XAxis as unknown as React.ComponentType<Record<string, unknown>>;
+  const Y = M.YAxis as unknown as React.ComponentType<Record<string, unknown>>;
+  const TT = M.Tooltip as unknown as React.ComponentType<Record<string, unknown>>;
+  return (
+    <RC width="100%" height="100%">
+      <BC data={data}>
+        <X dataKey="name" tick={{ fontSize: 12 }} interval={0} angle={-20} textAnchor="end" height={60} />
+        <Y />
+        <TT formatter={(v: unknown) => fmt(Number(v)) + " hrs"} contentStyle={{ fontSize: 12 }} />
+        <BarC dataKey="current" name="Current" fill="#0ea5e9" radius={[4, 4, 0, 0]} isAnimationActive animationDuration={800} animationEasing="ease-out" />
+        <BarC dataKey="new" name="New Model" fill="#16a34a" radius={[4, 4, 0, 0]} isAnimationActive animationDuration={800} animationEasing="ease-out" />
+      </BC>
+    </RC>
+  );
+}
+
+function DistStack({ data, keys, colorMap }: { data: Record<string, number | string>[]; keys: string[]; colorMap: Record<string, string> }) {
+  const M = useRecharts();
+  if (!M) return <div className="h-[360px] grid place-items-center text-slate-400 text-sm">Loading chart…</div>;
+  const RC = M.ResponsiveContainer as unknown as React.ComponentType<Record<string, unknown>>;
+  const BC = M.BarChart as unknown as React.ComponentType<Record<string, unknown>>;
+  const BarC = M.Bar as unknown as React.ComponentType<Record<string, unknown>>;
+  const X = M.XAxis as unknown as React.ComponentType<Record<string, unknown>>;
+  const Y = M.YAxis as unknown as React.ComponentType<Record<string, unknown>>;
+  const TT = M.Tooltip as unknown as React.ComponentType<Record<string, unknown>>;
+  return (
+    <RC width="100%" height="100%">
+      <BC data={data} stackOffset="expand">
+        <X dataKey="name" />
+        <Y tickFormatter={(v: number) => Math.round((Number(v) || 0) * 100) + "%"} />
+        <TT formatter={(v: unknown) => Math.round((Number(v) || 0) * 100) + "%"} contentStyle={{ fontSize: 12 }} />
+        {keys.map(k => (<BarC key={k} dataKey={k} stackId="a" fill={colorMap[k]} />))}
+      </BC>
+    </RC>
+  );
+}
+
+function CartonSankey({ nodes, links }: { nodes: { name: string }[]; links: SankeyLinkDatum[] }) {
+  const M = useRecharts();
+  if (!M) return <div className="h-[520px] grid place-items-center text-slate-400 text-sm">Loading flow…</div>;
+  const RC = M.ResponsiveContainer as unknown as React.ComponentType<Record<string, unknown>>;
+  const SankeyC = M.Sankey as unknown as React.ComponentType<Record<string, unknown>>;
+  const TT = M.Tooltip as unknown as React.ComponentType<Record<string, unknown>>;
+  const Any = {} as Record<string, unknown>;
+  return (
+    <RC width="100%" height="100%">
+      <SankeyC data={{ nodes, links }} nodePadding={36} nodeWidth={16} linkCurvature={0.5}
+        node={(props: Record<string, unknown>) => <SankeyNode {...(props as unknown as SankeyNodeProps)} />}
+        link={(props: Record<string, unknown>) => <SankeyLink {...(props as unknown as SankeyLinkProps)} />}
+        {...Any}
+      >
+        <TT formatter={(v: unknown) => fmt(Number(v)) + " cartons"} />
+      </SankeyC>
+    </RC>
+  );
+}
 
 const SankeyNode = (p: SankeyNodeProps) => { const { x, y, width, height, payload } = p; const name = payload?.name ?? "", val = Number(payload?.value ?? 0), color = NODE_COLORS[name] || "#64748b"; return (
   <g>
@@ -127,9 +200,6 @@ const SankeyLink = (p: SankeyLinkProps) => {
   const style: CSSVars = { ['--cycle']: `${Math.round(cycle * 1.4 + gap * 2)}px`, animation: `flowLoop ${Math.max(dur, 6)}s linear infinite` };
   return (<g><path d={d} fill="none" stroke={color} strokeOpacity={0.35} strokeWidth={w} strokeLinecap="round" /><path d={d} fill="none" stroke="#ffffff" strokeOpacity={0.35} strokeWidth={w * 0.45} strokeLinecap="round" strokeDasharray={`${Math.round(cycle * 1.4)} ${Math.round(gap * 2)}`} style={style} /><path d={d} fill="none" stroke={color} strokeOpacity={0.55} strokeWidth={Math.max(2, w * 0.08)} strokeLinecap="round" /></g>);
 };
-
-const SankeyNodeElement = (<SankeyNode x={0} y={0} width={0} height={0} payload={{ name: '', value: 0 }} />);
-const SankeyLinkElement = (<SankeyLink sourceX={0} sourceY={0} targetX={0} targetY={0} sourceControlX={0} targetControlX={0} />);
 
 export default function Page() {
   const [hourlyRate, setHourlyRate] = useState(35);
@@ -156,9 +226,6 @@ export default function Page() {
   const processColors = useMemo(() => { const m: Record<string, string> = {}; procList.forEach((p, i) => m[p] = ["#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#8b5cf6", "#0ea5e9", "#10b981", "#eab308", "#f43f5e"][i % 9]); return m }, [procList]);
   const barData = useMemo(() => calc.rows.map(r => ({ name: r.process, current: r.current, new: r.new })), [calc.rows]);
   const distData = useMemo(() => { const ct = calc.totals.current || 1, nt = calc.totals.new || 1, cur: Record<string, number | string> = { name: "Current" }, nw: Record<string, number | string> = { name: "New" }; for (const r of calc.rows) { cur[r.process] = r.current / ct; nw[r.process] = r.new / nt } return [cur, nw] }, [calc.rows, calc.totals]);
-
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
 
   const cartonSankey = useMemo(() => {
     const cartons = Number(RAW_DATA.inputs?.["Cartons Delivered"] ?? 0) || 0, dem = (shares["Demand %"] || 0) + (remaining || 0);
@@ -204,37 +271,91 @@ export default function Page() {
 
       <div className="max-w-7xl mx-auto">
         <Tabs defaultValue="overview" className="w-full">
-          <TabsList className="mb-4">{TABS.map(([v, l]) => <TabsTrigger key={v} value={v}>{l}</TabsTrigger>)}</TabsList>
+          <TabsList className="mb-4">{([ ["overview","Overview"], ["process","Process Explorer"], ["issues","Issue Effects"] ] as [string,string][]).map(([v, l]) => <TabsTrigger key={v} value={v}>{l}</TabsTrigger>)}</TabsList>
 
           <TabsContent value="overview">
             <div className="grid lg:grid-cols-2 gap-6">
-              <Card className="shadow-sm"><CardContent className="p-4"><div className="flex items-center justify-between mb-2"><div className="text-sm font-medium">Current vs New hours by process</div></div><div className="h-[360px]">{mounted && (<ResponsiveContainer width="100%" height="100%"><BarChart data={barData}><XAxis dataKey="name" tick={{ fontSize: 12 }} interval={0} angle={-20} textAnchor="end" height={60} /><YAxis /><RTooltip formatter={(v: unknown) => fmt(Number(v)) + " hrs"} contentStyle={{ fontSize: 12 }} /><Bar dataKey="current" name="Current" fill="#0ea5e9" radius={[4, 4, 0, 0]} isAnimationActive animationDuration={800} animationEasing="ease-out" /><Bar dataKey="new" name="New Model" fill="#16a34a" radius={[4, 4, 0, 0]} isAnimationActive animationDuration={800} animationEasing="ease-out" /></BarChart></ResponsiveContainer>) }</div></CardContent></Card>
-              <Card className="shadow-sm"><CardContent className="p-4"><div className="text-sm font-medium mb-2">Workload distribution by process (100%)</div><div className="h-[360px]">{mounted && (<ResponsiveContainer width="100%" height="100%"><BarChart data={distData} stackOffset="expand"><XAxis dataKey="name" /><YAxis tickFormatter={(v: number) => Math.round((Number(v) || 0) * 100) + "%"} /><RTooltip formatter={(v: unknown) => Math.round((Number(v) || 0) * 100) + "%"} contentStyle={{ fontSize: 12 }} />{procList.map(p => (<Bar key={p} dataKey={p} stackId="a" fill={processColors[p]} />))}</BarChart></ResponsiveContainer>) }</div></CardContent></Card>
+              <Card className="shadow-sm"><CardContent className="p-4"><div className="flex items-center justify-between mb-2"><div className="text-sm font-medium">Current vs New hours by process</div></div><div className="h-[360px]"><BarCompare data={barData} /></div></CardContent></Card>
+              <Card className="shadow-sm"><CardContent className="p-4"><div className="text-sm font-medium mb-2">Workload distribution by process (100%)</div><div className="h-[360px]"><DistStack data={distData} keys={procList} colorMap={processColors} /></div></CardContent></Card>
             </div>
 
             <div className="mt-6 grid lg:grid-cols-3 gap-6">
-              <Card className="shadow-sm lg:col-span-2"><CardContent className="p-4"><div className="flex items-center justify-between mb-2"><div className="text-sm font-medium">Carton flow</div></div><div className="h-[520px]">{mounted && (<ResponsiveContainer width="100%" height="100%"><SankeyComp data={{ nodes: cartonSankey.nodes, links: cartonSankey.links }} nodePadding={36} nodeWidth={16} linkCurvature={0.5} node={SankeyNodeElement} link={SankeyLinkElement}><RTooltip formatter={(v: unknown) => fmt(Number(v)) + " cartons"} /></SankeyComp></ResponsiveContainer>)}</div></CardContent></Card>
-              <Card className="shadow-sm lg:col-span-1"><CardContent className="p-4"><div className="text-sm font-medium mb-2">Channel breakdown</div><div className="border rounded-lg overflow-hidden"><table className="w-full text-sm"><thead className="bg-slate-50"><tr><th className="text-left p-2">Channel</th><th className="text-right p-2">Cartons</th><th className="text-right p-2">Share</th><th className="text-left p-2">→ Dest</th></tr></thead><tbody>{cartonSankey.flowRows.map((r: FlowRow) => (<tr key={r.channel} className="border-t"><td className="p-2"><div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: NODE_COLORS[r.channel] || "#94a3b8" }} /> {r.channel}</div></td><td className="p-2 text-right">{fmt(r.cartons)}</td><td className="p-2 text-right">{Math.round((r.pct || 0) * 100)}%</td><td className="p-2">{r.dest}</td></tr>))}</tbody></table></div></CardContent></Card>
+              <Card className="shadow-sm lg:col-span-2"><CardContent className="p-4"><div className="flex items-center justify-between mb-2"><div className="text-sm font-medium">Carton flow</div></div><div className="h-[520px]"><CartonSankey nodes={cartonSankey.nodes} links={cartonSankey.links} /></div></CardContent></Card>
+              <Card className="shadow-sm lg:col-span-1"><CardContent className="p-4"><div className="text-sm font-medium mb-2">Channel breakdown</div><div className="border rounded-lg overflow-hidden"><table className="w-full text-sm"><thead className="bg-slate-50"><tr><th className="text-left p-2">Channel</th><th className="text-right p-2">Cartons</th><th className="text-right p-2">Share</th><th className="text-left p-2">→ Dest</th></tr></thead><tbody>{cartonSankey.flowRows.map((r: FlowRow) => (
+                <tr key={r.channel} className="border-t">
+                  <td className="p-2"><div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: NODE_COLORS[r.channel] || "#94a3b8" }} /> {r.channel}</div></td>
+                  <td className="p-2 text-right">{fmt(r.cartons)}</td>
+                  <td className="p-2 text-right">{Math.round((r.pct || 0) * 100)}%</td>
+                  <td className="p-2">{r.dest}</td>
+                </tr>
+              ))}</tbody></table></div></CardContent></Card>
             </div>
           </TabsContent>
 
           <TabsContent value="process">
             <Card className="shadow-sm"><CardContent className="p-4 space-y-6">
               <div className="text-sm font-medium">Per‑process parameters — core</div>
-              <div className="overflow-x-auto"><table className="min-w-full text-sm"><thead className="text-left text-slate-500"><tr><th className="py-2 pr-4">Process</th><th className="py-2 pr-4">Unit</th><th className="py-2 pr-4">Use roster</th><th className="py-2 pr-4">Rostered hrs</th><th className="py-2 pr-4">Rate /1k (Current)</th><th className="py-2 pr-4">Rate /1k (New)</th></tr></thead><tbody>{procList.map(p => { const c = cfg[p] || defaultCfg(p); let rH = getNum(RAW_DATA.rostered_hours, p, 0); if (p === "Loadfill") rH = getNum(RAW_DATA.rostered_hours, "Loadfill", getNum(RAW_DATA.rostered_hours, "Sequence", 0)); const rC = getNum(RAW_DATA.rates_per_1000, p, 0), rN = getNum(RAW_DATA.new_rates_per_1000, p, rC); return (<tr key={p} className="border-t"><td className="py-2 pr-4 font-medium whitespace-nowrap">{p}</td><td className="py-2 pr-4"><select className="border rounded-md px-2 py-1 text-sm" value={c.unit} onChange={e => { const u = parseUnit(e.target.value); setCfg(s => ({ ...s, [p]: { ...c, unit: u } })); setBump(x => x + 1); }}><option value="cartons">Cartons</option><option value="online">Online</option></select></td><td className="py-2 pr-4"><Switch checked={!!c.useRoster} onCheckedChange={on => { setCfg(s => ({ ...s, [p]: { ...c, useRoster: on } })); setBump(x => x + 1); }} /></td><td className="py-2 pr-4"><Num value={rH} onChange={n => { if (p === "Loadfill") { setNum(RAW_DATA.rostered_hours, "Loadfill", n); delete RAW_DATA.rostered_hours["Sequence"]; } else setNum(RAW_DATA.rostered_hours, p, n); setBump(x => x + 1); }} /></td><td className="py-2 pr-4"><Num value={rC} onChange={n => { setNum(RAW_DATA.rates_per_1000, p, n); setBump(x => x + 1); }} /></td><td className="py-2 pr-4"><Num value={rN} onChange={n => { setNum(RAW_DATA.new_rates_per_1000, p, n); setBump(x => x + 1); }} /></td></tr>) })}</tbody></table></div>
+              <div className="overflow-x-auto"><table className="min-w-full text-sm"><thead className="text-left text-slate-500"><tr><th className="py-2 pr-4">Process</th><th className="py-2 pr-4">Unit</th><th className="py-2 pr-4">Use roster</th><th className="py-2 pr-4">Rostered hrs</th><th className="py-2 pr-4">Rate /1k (Current)</th><th className="py-2 pr-4">Rate /1k (New)</th></tr></thead><tbody>{procList.map(p => { const c = (cfg[p] || defaultCfg(p)); let rH = getNum(RAW_DATA.rostered_hours, p, 0); if (p === "Loadfill") rH = getNum(RAW_DATA.rostered_hours, "Loadfill", getNum(RAW_DATA.rostered_hours, "Sequence", 0)); const rC = getNum(RAW_DATA.rates_per_1000, p, 0), rN = getNum(RAW_DATA.new_rates_per_1000, p, rC); return (
+                <tr key={p} className="border-t">
+                  <td className="py-2 pr-4 font-medium whitespace-nowrap">{p}</td>
+                  <td className="py-2 pr-4"><select className="border rounded-md px-2 py-1 text-sm" value={c.unit} onChange={e => { const u = parseUnit(e.target.value); const next: ProcCfg = { ...c, unit: u }; setCfg(s => ({ ...s, [p]: next })); setBump(x => x + 1); }}><option value="cartons">Cartons</option><option value="online">Online</option></select></td>
+                  <td className="py-2 pr-4"><Switch checked={!!c.useRoster} onCheckedChange={on => { const next: ProcCfg = { ...c, useRoster: on }; setCfg(s => ({ ...s, [p]: next })); setBump(x => x + 1); }} /></td>
+                  <td className="py-2 pr-4"><Num value={rH} onChange={n => { if (p === "Loadfill") { setNum(RAW_DATA.rostered_hours, "Loadfill", n); delete RAW_DATA.rostered_hours["Sequence"]; } else setNum(RAW_DATA.rostered_hours, p, n); setBump(x => x + 1); }} /></td>
+                  <td className="py-2 pr-4"><Num value={rC} onChange={n => { setNum(RAW_DATA.rates_per_1000, p, n); setBump(x => x + 1); }} /></td>
+                  <td className="py-2 pr-4"><Num value={rN} onChange={n => { setNum(RAW_DATA.new_rates_per_1000, p, n); setBump(x => x + 1); }} /></td>
+                </tr>
+              ) })}</tbody></table></div>
 
               <div className="text-sm font-medium">Per‑process parameters — advanced effects</div>
-              <div className="overflow-x-auto"><table className="min-w-full text-xs"><thead className="text-left text-slate-500"><tr><th className="py-2 pr-4">Process</th><th className="py-2 pr-4">Demand</th><th className="py-2 pr-4">Backfill driver</th><th className="py-2 pr-4">Non‑demand (−1..1)</th><th className="py-2 pr-4">Extras (−1..1)</th><th className="py-2 pr-4">OMS (0..1)</th></tr></thead><tbody>{procList.map(p => { const c = cfg[p] || defaultCfg(p); const set = <K extends keyof ProcCfg>(key: K, v: ProcCfg[K]) => { setCfg(s => ({ ...s, [p]: { ...c, [key]: v } })); setBump(x => x + 1) }; return (<tr key={p} className="border-t"><td className="py-2 pr-4 font-medium whitespace-nowrap">{p}</td><td className="py-2 pr-4"><Switch checked={!!c.demand} onCheckedChange={on => set("demand", on)} /></td><td className="py-2 pr-4"><Switch checked={!!c.backfill} onCheckedChange={on => set("backfill", on)} /></td><td className="py-2 pr-4"><Num className="w-24" value={c.nd} step={0.05} min={-1} max={1} onChange={n => set("nd", cap(n, -1, 1))} /></td><td className="py-2 pr-4"><Num className="w-24" value={c.ex} step={0.05} min={-1} max={1} onChange={n => set("ex", cap(n, -1, 1))} /></td><td className="py-2 pr-4"><Num className="w-24" value={c.oms} step={0.05} min={0} max={1} onChange={n => set("oms", cap(n, 0, 1))} /></td></tr>) })}</tbody></table></div>
+              <div className="overflow-x-auto"><table className="min-w-full text-xs"><thead className="text-left text-slate-500"><tr><th className="py-2 pr-4">Process</th><th className="py-2 pr-4">Demand</th><th className="py-2 pr-4">Backfill driver</th><th className="py-2 pr-4">Non‑demand (−1..1)</th><th className="py-2 pr-4">Extras (−1..1)</th><th className="py-2 pr-4">OMS (0..1)</th></tr></thead><tbody>{procList.map(p => { const c = (cfg[p] || defaultCfg(p)); const setProp = (key: keyof ProcCfg, v: ProcCfg[keyof ProcCfg]) => { const next = { ...c, [key]: v } as ProcCfg; setCfg(s => ({ ...s, [p]: next })); setBump(x => x + 1); }; return (
+                <tr key={p} className="border-t">
+                  <td className="py-2 pr-4 font-medium whitespace-nowrap">{p}</td>
+                  <td className="py-2 pr-4"><Switch checked={!!c.demand} onCheckedChange={on => setProp("demand", on)} /></td>
+                  <td className="py-2 pr-4"><Switch checked={!!c.backfill} onCheckedChange={on => setProp("backfill", on)} /></td>
+                  <td className="py-2 pr-4"><Num className="w-24" value={Number(c.nd)} step={0.05} min={-1} max={1} onChange={n => setProp("nd", cap(n, -1, 1))} /></td>
+                  <td className="py-2 pr-4"><Num className="w-24" value={Number(c.ex)} step={0.05} min={-1} max={1} onChange={n => setProp("ex", cap(n, -1, 1))} /></td>
+                  <td className="py-2 pr-4"><Num className="w-24" value={Number(c.oms)} step={0.05} min={0} max={1} onChange={n => setProp("oms", cap(n, 0, 1))} /></td>
+                </tr>
+              ) })}</tbody></table></div>
 
               <div className="text-sm font-medium">Scenario inputs</div>
-              <div className="grid md:grid-cols-3 gap-4">{Object.entries(RAW_DATA.inputs).map(([k, v]) => (<div key={k} className="space-y-1"><Label className="text-xs">{k}</Label><Num value={Number(v)} onChange={n => { setNum(RAW_DATA.inputs, k, n); setBump(x => x + 1); }} /></div>))}{otherScenarioKeys.map(k => (<div key={k} className="space-y-1"><Label className="text-xs">{k}</Label><Num value={Number((((params[k] ?? (RAW_DATA.scenario_params as Record<string, number>)[k]) || 0) * 100).toFixed(1))} step={0.1} onChange={pct => { setParams(p => ({ ...p, [k]: cap((isNaN(pct) ? 0 : pct) / 100) })); setBump(x => x + 1); }} /></div>))}<div className="space-y-1"><Label className="text-xs">Calibrate derived to store hours</Label><div className="flex items-center gap-2"><Switch checked={calibrate} onCheckedChange={setCalibrate} /></div></div><div className="space-y-1"><Label className="text-xs">Avg Hourly Rate (A$)</Label><Num value={hourlyRate} step={1} onChange={n => setHourlyRate(isNaN(n) ? 0 : n)} /></div><div className="space-y-1"><Label className="text-xs">Weekly Store Hours (for calibration)</Label><Num value={storeHours} step={1} onChange={n => setStoreHours(isNaN(n) ? 0 : n)} /></div></div>
+              <div className="grid md:grid-cols-3 gap-4">
+                {Object.entries(RAW_DATA.inputs).map(([k, v]) => (
+                  <div key={k} className="space-y-1"><Label className="text-xs">{k}</Label><Num value={Number(v)} onChange={n => { setNum(RAW_DATA.inputs, k, n); setBump(x => x + 1); }} /></div>
+                ))}
+                {otherScenarioKeys.map(k => (
+                  <div key={k} className="space-y-1"><Label className="text-xs">{k}</Label><Num value={Number((((params[k] ?? (RAW_DATA.scenario_params as Record<string, number>)[k]) || 0) * 100).toFixed(1))} step={0.1} onChange={pct => { setParams(p => ({ ...p, [k]: cap((isNaN(pct) ? 0 : pct) / 100) })); setBump(x => x + 1); }} /></div>
+                ))}
+                <div className="space-y-1"><Label className="text-xs">Calibrate derived to store hours</Label><div className="flex items-center gap-2"><Switch checked={calibrate} onCheckedChange={setCalibrate} /></div></div>
+                <div className="space-y-1"><Label className="text-xs">Avg Hourly Rate (A$)</Label><Num value={hourlyRate} step={1} onChange={n => setHourlyRate(isNaN(n) ? 0 : n)} /></div>
+                <div className="space-y-1"><Label className="text-xs">Weekly Store Hours (for calibration)</Label><Num value={storeHours} step={1} onChange={n => setStoreHours(isNaN(n) ? 0 : n)} /></div>
+              </div>
             </CardContent></Card>
           </TabsContent>
 
           <TabsContent value="issues">
             <Card className="shadow-sm"><CardContent className="p-4 space-y-4">
               <div className="text-sm font-medium">Per‑issue effects</div>
-              {issueDefs.map(iss => { const procs = uniq([...Object.keys(iss.impact).map(alias), ...baseProcs]); return (<div key={iss.id} className="border rounded-lg p-3"><div className="flex items-center justify-between mb-2"><div className="font-medium">{iss.name}</div><div className="flex items-center gap-3"><span className="text-xs text-slate-500">Enabled</span><Switch checked={!!issuesEnabled[iss.id]} onCheckedChange={on => { setIssuesEnabled(s => ({ ...s, [iss.id]: on })); setBump(x => x + 1); }} /></div></div><div className="overflow-x-auto"><table className="min-w-full text-xs"><thead><tr><th className="text-left p-2">Process</th><th className="text-left p-2">Impact %</th><th className="text-left p-2">Current ×</th><th className="text-left p-2">New × (mitigated)</th><th /></tr></thead><tbody>{procs.map(p => { const k = alias(p), b = iss.impact[k] || 0, cur = 1 + b, newer = 1 + b * (1 - mitigation); return (<tr key={k} className="border-t"><td className="p-2 font-medium whitespace-nowrap">{k}</td><td className="p-2"><div className="flex items-center gap-2"><Num className="w-24" value={Math.round(b * 100)} onChange={pct => { const v = Math.max(0, pct) / 100; setIssueDefs(prev => prev.map(it => it.id === iss.id ? { ...it, impact: { ...it.impact, [k]: v } } : it)); setBump(x => x + 1); }} /><span className="text-slate-500">%</span></div></td><td className="p-2">{cur.toFixed(2)}×</td><td className="p-2">{newer.toFixed(2)}×</td><td className="p-2 text-right">{iss.impact[k] !== undefined && (<Button variant="ghost" size="sm" onClick={() => removeImpact(iss.id, k)}>Remove</Button>)}</td></tr>) })}<tr className="border-t"><td className="p-2" colSpan={5}><div className="flex flex-wrap items-center gap-2"><Label className="text-xs">Add process impact:</Label><select className="border rounded-md px-2 py-1 text-sm" onChange={e => { const p = alias(e.target.value); if (!p) return; if ((issueDefs.find(i => i.id === iss.id)?.impact ?? {})[p] == null) { setIssueDefs(prev => prev.map(it => it.id === iss.id ? { ...it, impact: { ...it.impact, [p]: 0.05 } } : it)); setBump(x => x + 1); } e.currentTarget.selectedIndex = 0; }}><option value="">Select process…</option>{baseProcs.map(p => <option key={p} value={p}>{p}</option>)}</select></div></td></tr></tbody></table></div></div>) })}
+              {issueDefs.map(iss => { const procs = uniq([...Object.keys(iss.impact).map(alias), ...baseProcs]); return (
+                <div key={iss.id} className="border rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="font-medium">{iss.name}</div>
+                    <div className="flex items-center gap-3"><span className="text-xs text-slate-500">Enabled</span><Switch checked={!!issuesEnabled[iss.id]} onCheckedChange={on => { setIssuesEnabled(s => ({ ...s, [iss.id]: on })); setBump(x => x + 1); }} /></div>
+                  </div>
+                  <div className="overflow-x-auto"><table className="min-w-full text-xs"><thead><tr><th className="text-left p-2">Process</th><th className="text-left p-2">Impact %</th><th className="text-left p-2">Current ×</th><th className="text-left p-2">New × (mitigated)</th><th /></tr></thead><tbody>
+                    {procs.map(p => { const k = alias(p), b = iss.impact[k] || 0, cur = 1 + b, newer = 1 + b * (1 - mitigation); return (
+                      <tr key={k} className="border-t">
+                        <td className="p-2 font-medium whitespace-nowrap">{k}</td>
+                        <td className="p-2"><div className="flex items-center gap-2"><Num className="w-24" value={Math.round(b * 100)} onChange={pct => { const v = Math.max(0, pct) / 100; setIssueDefs(prev => prev.map(it => it.id === iss.id ? { ...it, impact: { ...it.impact, [k]: v } } : it)); setBump(x => x + 1); }} /><span className="text-slate-500">%</span></div></td>
+                        <td className="p-2">{cur.toFixed(2)}×</td>
+                        <td className="p-2">{newer.toFixed(2)}×</td>
+                        <td className="p-2 text-right">{iss.impact[k] !== undefined && (<Button variant="ghost" size="sm" onClick={() => removeImpact(iss.id, k)}>Remove</Button>)}</td>
+                      </tr>
+                    ) })}
+                    <tr className="border-t"><td className="p-2" colSpan={5}><div className="flex flex-wrap items-center gap-2"><Label className="text-xs">Add process impact:</Label><select className="border rounded-md px-2 py-1 text-sm" onChange={e => { const p = alias(e.target.value); if (!p) return; if ((issueDefs.find(i => i.id === iss.id)?.impact ?? {})[p] == null) { setIssueDefs(prev => prev.map(it => it.id === iss.id ? { ...it, impact: { ...it.impact, [p]: 0.05 } } : it)); setBump(x => x + 1); } e.currentTarget.selectedIndex = 0; }}><option value="">Select process…</option>{baseProcs.map(p => <option key={p} value={p}>{p}</option>)}</select></div></td></tr>
+                  </tbody></table></div>
+                </div>
+              ) })}
             </CardContent></Card>
           </TabsContent>
         </Tabs>
@@ -256,9 +377,9 @@ export default function Page() {
                   <div className="flex items-center justify-between"><Label className="text-sm">{k}</Label><div className="text-xs text-slate-600">{valueP}% <span className="text-slate-400">/ max {Math.round(absMax * 100)}%</span></div></div>
                   <div className="h-2 bg-slate-200 rounded-full overflow-hidden"><div className="h-full" style={{ width: `${valueP}%`, backgroundColor: color }} /></div>
                   <div className="flex items-center gap-2">
-                    <Button type="button" variant="outline" size="sm" onClick={() => { setParams(prev => { const curr = prev[k] ?? (RAW_DATA.scenario_params as Record<string, number>)[k] ?? 0; const others = (CAT_KEYS as readonly string[]).filter(c => c !== k).reduce((s, c) => s + (prev[c] ?? (RAW_DATA.scenario_params as Record<string, number>)[c] ?? 0), 0); const allowed = Math.max(0, 1 - others); const next = Math.max(0, Math.min(curr - 0.01, allowed)); return { ...prev, [k]: next }; }); setBump(x => x + 1); }}>-1%</Button>
-                    <Slider value={[valueP]} min={0} max={maxP} step={1} onValueChange={(arr) => { const nextP = (arr[0] ?? 0); setParams(prev => { const others = (CAT_KEYS as readonly string[]).filter(c => c !== k).reduce((s, c) => s + (prev[c] ?? (RAW_DATA.scenario_params as Record<string, number>)[c] ?? 0), 0); const allowed = Math.max(0, 1 - others); const next = Math.min(nextP / 100, allowed); return { ...prev, [k]: next }; }); setBump(x => x + 1); }} />
-                    <Button type="button" variant="outline" size="sm" onClick={() => { setParams(prev => { const curr = prev[k] ?? (RAW_DATA.scenario_params as Record<string, number>)[k] ?? 0; const others = (CAT_KEYS as readonly string[]).filter(c => c !== k).reduce((s, c) => s + (prev[c] ?? (RAW_DATA.scenario_params as Record<string, number>)[c] ?? 0), 0); const allowed = Math.max(0, 1 - others); const next = Math.min(curr + 0.01, allowed); return { ...prev, [k]: next }; }); setBump(x => x + 1); }}>+1%</Button>
+                    <Button type="button" variant="outline" size="sm" onClick={() => { setParams(prev => { const curr = prev[k] ?? (RAW_DATA.scenario_params as Record<string, number>)[k] ?? 0; const othersA = (CAT_KEYS as readonly string[]).filter(c => c !== k).reduce((s, c) => s + (prev[c] ?? (RAW_DATA.scenario_params as Record<string, number>)[c] ?? 0), 0); const allowed = Math.max(0, 1 - othersA); const next = Math.max(0, Math.min(curr - 0.01, allowed)); return { ...prev, [k]: next }; }); setBump(x => x + 1); }}>-1%</Button>
+                    <Slider value={[valueP]} min={0} max={maxP} step={1} onValueChange={(arr) => { const nextP = (arr[0] ?? 0); setParams(prev => { const othersB = (CAT_KEYS as readonly string[]).filter(c => c !== k).reduce((s, c) => s + (prev[c] ?? (RAW_DATA.scenario_params as Record<string, number>)[c] ?? 0), 0); const allowed = Math.max(0, 1 - othersB); const next = Math.min(nextP / 100, allowed); return { ...prev, [k]: next }; }); setBump(x => x + 1); }} />
+                    <Button type="button" variant="outline" size="sm" onClick={() => { setParams(prev => { const curr = prev[k] ?? (RAW_DATA.scenario_params as Record<string, number>)[k] ?? 0; const othersC = (CAT_KEYS as readonly string[]).filter(c => c !== k).reduce((s, c) => s + (prev[c] ?? (RAW_DATA.scenario_params as Record<string, number>)[c] ?? 0), 0); const allowed = Math.max(0, 1 - othersC); const next = Math.min(curr + 0.01, allowed); return { ...prev, [k]: next }; }); setBump(x => x + 1); }}>+1%</Button>
                   </div>
                 </div>
               );
@@ -266,7 +387,24 @@ export default function Page() {
           </div>
         </CardContent></Card>
 
-        <Card className="shadow-sm"><CardContent className="p-4 space-y-3"><div className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-amber-600" /><h2 className="font-semibold">Issue scenarios</h2></div><div className="space-y-3">{issueDefs.map(iss => (<div key={iss.id} className="flex items-center justify-between"><div className="pr-4"><div className="font-medium">{iss.name}</div><div className="text-xs text-slate-500">{iss.description}</div></div><Switch checked={!!issuesEnabled[iss.id]} onCheckedChange={on => { setIssuesEnabled(s => ({ ...s, [iss.id]: on })); setBump(x => x + 1); }} /></div>))}</div><div className="pt-2"><div className="flex justify-between items-center mb-2"><Label className="text-sm">New model mitigation</Label><span className="text-sm text-slate-600">{Math.round(mitigation * 100)}%</span></div><Slider value={[Math.round(mitigation * 100)]} max={100} step={5} onValueChange={arr => { setMitigation((arr[0] ?? 0) / 100); setBump(x => x + 1); }} /></div></CardContent></Card>
+        <Card className="shadow-sm"><CardContent className="p-4 space-y-3">
+          <div className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-amber-600" /><h2 className="font-semibold">Issue scenarios</h2></div>
+          <div className="space-y-3">
+            {issueDefs.map(iss => (
+              <div key={iss.id} className="flex items-center justify-between">
+                <div className="pr-4">
+                  <div className="font-medium">{iss.name}</div>
+                  <div className="text-xs text-slate-500">{iss.description}</div>
+                </div>
+                <Switch checked={!!issuesEnabled[iss.id]} onCheckedChange={on => { setIssuesEnabled(s => ({ ...s, [iss.id]: on })); setBump(x => x + 1); }} />
+              </div>
+            ))}
+          </div>
+          <div className="pt-2">
+            <div className="flex justify-between items-center mb-2"><Label className="text-sm">New model mitigation</Label><span className="text-sm text-slate-600">{Math.round(mitigation * 100)}%</span></div>
+            <Slider value={[Math.round(mitigation * 100)]} max={100} step={5} onValueChange={arr => { setMitigation((arr[0] ?? 0) / 100); setBump(x => x + 1); }} />
+          </div>
+        </CardContent></Card>
       </div>
     </div>
   );
