@@ -9,7 +9,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { BarChart, Bar, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, Sankey } from "recharts";
+import dynamic from "next/dynamic";
+
+type AnyProps = Record<string, unknown>;
+const dyn = (sel: (m: typeof import("recharts")) => unknown) =>
+  dynamic(async () => sel(await import("recharts")) as unknown as React.ComponentType<AnyProps>, { ssr: false });
+
+const ResponsiveContainer = dyn(m => m.ResponsiveContainer);
+const BarChart = dyn(m => m.BarChart);
+const Bar = dyn(m => m.Bar);
+const XAxis = dyn(m => m.XAxis);
+const YAxis = dyn(m => m.YAxis);
+const RTooltip = dyn(m => m.Tooltip);
+const SankeyComp = dyn(m => m.Sankey);
 import { Factory, AlertTriangle, TrendingDown, CalendarDays, ArrowDownRight } from "lucide-react";
 
 type Unit = "cartons" | "online";
@@ -145,6 +157,9 @@ export default function Page() {
   const barData = useMemo(() => calc.rows.map(r => ({ name: r.process, current: r.current, new: r.new })), [calc.rows]);
   const distData = useMemo(() => { const ct = calc.totals.current || 1, nt = calc.totals.new || 1, cur: Record<string, number | string> = { name: "Current" }, nw: Record<string, number | string> = { name: "New" }; for (const r of calc.rows) { cur[r.process] = r.current / ct; nw[r.process] = r.new / nt } return [cur, nw] }, [calc.rows, calc.totals]);
 
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   const cartonSankey = useMemo(() => {
     const cartons = Number(RAW_DATA.inputs?.["Cartons Delivered"] ?? 0) || 0, dem = (shares["Demand %"] || 0) + (remaining || 0);
     const cats: [string, string, number][] = [["Demand %", "Demand", dem], ["Non-demand %", "Non‑demand", shares["Non-demand %"] || 0], ["Markup %", "Markup", shares["Markup %"] || 0], ["Clearance %", "Clearance", shares["Clearance %"] || 0], ["New lines %", "New lines", shares["New lines %"] || 0], ["LP %", "LP", shares["LP %"] || 0], ["OMS %", "OMS", shares["OMS %"] || 0]];
@@ -193,12 +208,12 @@ export default function Page() {
 
           <TabsContent value="overview">
             <div className="grid lg:grid-cols-2 gap-6">
-              <Card className="shadow-sm"><CardContent className="p-4"><div className="flex items-center justify-between mb-2"><div className="text-sm font-medium">Current vs New hours by process</div></div><div className="h-[360px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={barData}><XAxis dataKey="name" tick={{ fontSize: 12 }} interval={0} angle={-20} textAnchor="end" height={60} /><YAxis /><RTooltip formatter={(v: unknown) => fmt(Number(v)) + " hrs"} contentStyle={{ fontSize: 12 }} /><Bar dataKey="current" name="Current" fill="#0ea5e9" radius={[4, 4, 0, 0]} isAnimationActive animationDuration={800} animationEasing="ease-out" /><Bar dataKey="new" name="New Model" fill="#16a34a" radius={[4, 4, 0, 0]} isAnimationActive animationDuration={800} animationEasing="ease-out" /></BarChart></ResponsiveContainer></div></CardContent></Card>
-              <Card className="shadow-sm"><CardContent className="p-4"><div className="text-sm font-medium mb-2">Workload distribution by process (100%)</div><div className="h-[360px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={distData} stackOffset="expand"><XAxis dataKey="name" /><YAxis tickFormatter={(v: number) => Math.round((Number(v) || 0) * 100) + "%"} /><RTooltip formatter={(v: unknown) => Math.round((Number(v) || 0) * 100) + "%"} contentStyle={{ fontSize: 12 }} />{procList.map(p => (<Bar key={p} dataKey={p} stackId="a" fill={processColors[p]} />))}</BarChart></ResponsiveContainer></div></CardContent></Card>
+              <Card className="shadow-sm"><CardContent className="p-4"><div className="flex items-center justify-between mb-2"><div className="text-sm font-medium">Current vs New hours by process</div></div><div className="h-[360px]">{mounted && (<ResponsiveContainer width="100%" height="100%"><BarChart data={barData}><XAxis dataKey="name" tick={{ fontSize: 12 }} interval={0} angle={-20} textAnchor="end" height={60} /><YAxis /><RTooltip formatter={(v: unknown) => fmt(Number(v)) + " hrs"} contentStyle={{ fontSize: 12 }} /><Bar dataKey="current" name="Current" fill="#0ea5e9" radius={[4, 4, 0, 0]} isAnimationActive animationDuration={800} animationEasing="ease-out" /><Bar dataKey="new" name="New Model" fill="#16a34a" radius={[4, 4, 0, 0]} isAnimationActive animationDuration={800} animationEasing="ease-out" /></BarChart></ResponsiveContainer>) }</div></CardContent></Card>
+              <Card className="shadow-sm"><CardContent className="p-4"><div className="text-sm font-medium mb-2">Workload distribution by process (100%)</div><div className="h-[360px]">{mounted && (<ResponsiveContainer width="100%" height="100%"><BarChart data={distData} stackOffset="expand"><XAxis dataKey="name" /><YAxis tickFormatter={(v: number) => Math.round((Number(v) || 0) * 100) + "%"} /><RTooltip formatter={(v: unknown) => Math.round((Number(v) || 0) * 100) + "%"} contentStyle={{ fontSize: 12 }} />{procList.map(p => (<Bar key={p} dataKey={p} stackId="a" fill={processColors[p]} />))}</BarChart></ResponsiveContainer>) }</div></CardContent></Card>
             </div>
 
             <div className="mt-6 grid lg:grid-cols-3 gap-6">
-              <Card className="shadow-sm lg:col-span-2"><CardContent className="p-4"><div className="flex items-center justify-between mb-2"><div className="text-sm font-medium">Carton flow</div></div><div className="h-[520px]"><ResponsiveContainer width="100%" height="100%"><Sankey data={{ nodes: cartonSankey.nodes, links: cartonSankey.links }} nodePadding={36} nodeWidth={16} linkCurvature={0.5} node={SankeyNodeElement} link={SankeyLinkElement}><RTooltip formatter={(v: unknown) => fmt(Number(v)) + " cartons"} /></Sankey></ResponsiveContainer></div></CardContent></Card>
+              <Card className="shadow-sm lg:col-span-2"><CardContent className="p-4"><div className="flex items-center justify-between mb-2"><div className="text-sm font-medium">Carton flow</div></div><div className="h-[520px]">{mounted && (<ResponsiveContainer width="100%" height="100%"><SankeyComp data={{ nodes: cartonSankey.nodes, links: cartonSankey.links }} nodePadding={36} nodeWidth={16} linkCurvature={0.5} node={SankeyNodeElement} link={SankeyLinkElement}><RTooltip formatter={(v: unknown) => fmt(Number(v)) + " cartons"} /></SankeyComp></ResponsiveContainer>)}</div></CardContent></Card>
               <Card className="shadow-sm lg:col-span-1"><CardContent className="p-4"><div className="text-sm font-medium mb-2">Channel breakdown</div><div className="border rounded-lg overflow-hidden"><table className="w-full text-sm"><thead className="bg-slate-50"><tr><th className="text-left p-2">Channel</th><th className="text-right p-2">Cartons</th><th className="text-right p-2">Share</th><th className="text-left p-2">→ Dest</th></tr></thead><tbody>{cartonSankey.flowRows.map((r: FlowRow) => (<tr key={r.channel} className="border-t"><td className="p-2"><div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: NODE_COLORS[r.channel] || "#94a3b8" }} /> {r.channel}</div></td><td className="p-2 text-right">{fmt(r.cartons)}</td><td className="p-2 text-right">{Math.round((r.pct || 0) * 100)}%</td><td className="p-2">{r.dest}</td></tr>))}</tbody></table></div></CardContent></Card>
             </div>
           </TabsContent>
