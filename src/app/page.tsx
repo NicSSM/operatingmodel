@@ -214,33 +214,38 @@ export default function Page() {
       const buf = await f.arrayBuffer();
       const XLSX = await import("xlsx");
       const wb = XLSX.read(buf, { type: "array" });
-      const sh = wb.Sheets["Forecast Hours Alternate"] || wb.Sheets[wb.SheetNames[0]];
-      const rows: Array<Record<string, unknown>> = XLSX.utils.sheet_to_json(sh, { defval: null });
+      const names = wb.SheetNames;
+      const target = names.find(n => n.trim().toLowerCase() === "forecast roster hours") || names[0];
+      const sh = wb.Sheets[target];
+      if (!sh) throw new Error("No usable sheet found");
+      const rows = XLSX.utils.sheet_to_json(sh, { header: 1, defval: null, blankrows: false }) as unknown[][];
+      const norm = (s: string) => s.toLowerCase().replace(/[^a-z]/g, "");
       const mapName = (s: string): ProcessKey | null => {
-        const t = String(s || "").toLowerCase();
+        const t = norm(String(s || ""));
+        if (!t) return null;
         if (t.includes("decant")) return "Decant";
-        if (t.includes("loadfill") || t.includes("sequence")) return "Loadfill";
+        if (t.includes("loadfill") || t.includes("sequence") || t === "lf") return "Loadfill";
         if (t.includes("packaway")) return "Packaway";
-        if (t.includes("digital")) return "Digital";
-        if (t.includes("online")) return "Online";
+        if (t.includes("digitalshopkeeping") || t.includes("shopkeeping") || (t.includes("digital") && !t.includes("online"))) return "Digital";
+        if (t.includes("online") || t === "oms") return "Online";
         if (t.includes("backfill")) return "Backfill";
         return null;
       };
+      const numify = (v: unknown): number | null => {
+        if (v == null) return null;
+        if (typeof v === "number") return Number.isFinite(v) ? v : null;
+        const s = String(v).replace(/,/g, "").trim();
+        const n = Number(s); return Number.isFinite(n) ? n : null;
+      };
       const out: Partial<Record<ProcessKey, number>> = {};
-      rows.forEach(r => {
-        const keys = Object.keys(r);
-        const nameKey = keys.find(k => /process|activity|name/i.test(k)) || keys[0];
-        const p = mapName(String(r[nameKey] ?? '')); if (!p) return;
-        let num: number | null = null;
-        const pref = keys.find(k => /hours|weekly|total|value|forecast/i.test(k));
-        if (pref && (typeof r[pref] === 'number' || typeof r[pref] === 'string')) num = Number(r[pref]);
-        if (num == null) {
-          for (const k of keys) { if (k === nameKey) continue; const v = Number(r[k]); if (Number.isFinite(v)) { num = v; break; } }
-        }
-        if (Number.isFinite(num as number)) out[p] = Math.max(0, Number(num));
-      });
+      for (const r of rows) {
+        const name = r[0]; const hours = r[1];
+        const p = mapName(String(name ?? ""));
+        const n = numify(hours);
+        if (p && n != null) out[p] = Math.max(0, n);
+      }
       setSheetHours(out as Record<ProcessKey, number>);
-    } catch (err) { console.error(err); alert('Failed to read Excel. Ensure the sheet "Forecast Hours Alternate" exists.'); }
+    } catch (err) { console.error(err); alert('Failed to read Excel. Use the sheet "Forecast Roster Hours" with process in column A and hours in column B.'); }
   }
 
   return (
@@ -348,17 +353,17 @@ export default function Page() {
               <div className="text-sm font-medium">Import forecast hours (.xlsx)</div>
               <div className="grid sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <Label className="text-xs">File (sheet: "Forecast Hours Alternate")</Label>
+                  <Label className="text-xs">File (sheet: "Forecast Roster Hours")</Label>
                   <Input type="file" accept=".xlsx,.xls" onChange={onExcel} />
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Status</Label>
-                  <div className="text-sm text-slate-700">{sheetHours ? `${Object.keys(sheetHours).length} processes loaded` : 'No file loaded'}</div>
+                  <div className="text-sm text-slate-700">{sheetHours ? `${Object.keys(sheetHours).length} processes loaded: ${Object.keys(sheetHours).join(", ")}` : 'No file loaded'}</div>
                 </div>
               </div>
             </CardContent></Card>
-            <Card className="shadow-sm"><CardContent className="p-4 space-y-4"><div className="text-sm font-medium">Per‑process parameters (Current)</div><ProcTable cfg={currentCfg} setCfg={setCurrentCfg} /></CardContent></Card>
-            <Card className="shadow-sm"><CardContent className="p-4 space-y-4"><div className="text-sm font-medium">Per‑process parameters (New)</div><ProcTable cfg={newCfg} setCfg={setNewCfg} /></CardContent></Card>
+            <Card className="shadow-sm"><CardContent className="p-4 space-y-4"><div className="text-sm font-medium">Per‑process parameters (Current)</div><ProcTable cfg={currentCfg} setCfg={setCurrentCfg} sheetHours={sheetHours} /></CardContent></Card>
+            <Card className="shadow-sm"><CardContent className="p-4 space-y-4"><div className="text-sm font-medium">Per‑process parameters (New)</div><ProcTable cfg={newCfg} setCfg={setNewCfg} sheetHours={sheetHours} /></CardContent></Card>
           </TabsContent>
         </Tabs>
       </div>
@@ -366,12 +371,15 @@ export default function Page() {
   );
 }
 
-function ProcTable({ cfg, setCfg }: { cfg: Record<ProcessKey, ProcCfg>; setCfg: React.Dispatch<React.SetStateAction<Record<ProcessKey, ProcCfg>>> }) {
+function ProcTable({ cfg, setCfg, sheetHours }: { cfg: Record<ProcessKey, ProcCfg>; setCfg: React.Dispatch<React.SetStateAction<Record<ProcessKey, ProcCfg>>>; sheetHours: Record<ProcessKey, number> | null }) {
   return (
     <div className="grid md:grid-cols-2 gap-4">
       {PROCS.map((p)=> (
         <div key={p} className="border rounded-lg p-3 space-y-2">
-          <div className="text-sm font-medium">{PROC_LABEL(p)}</div>
+          <div className="text-sm font-medium flex items-center justify-between">
+            <span>{PROC_LABEL(p)}</span>
+            <span className="text-[11px] text-slate-500">{sheetHours?.[p] != null ? `Forecast: ${fmt(sheetHours[p])} hrs` : 'Forecast: —'}</span>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1"><Label className="text-xs">Unit</Label>
               <div className="flex gap-2 text-xs">{(["cartons","online"] as Unit[]).map(u=> (<Button key={u} variant={cfg[p].unit===u?"default":"outline"} className="h-7 px-2" onClick={()=>setCfg(s=>({...s,[p]:{...s[p],unit:u}}))}>{u}</Button>))}</div>
@@ -380,6 +388,14 @@ function ProcTable({ cfg, setCfg }: { cfg: Record<ProcessKey, ProcCfg>; setCfg: 
             <NumInput label="Rate / 1000" val={cfg[p].rate} set={(n)=>setCfg(s=>({...s,[p]:{...s[p],rate:Math.max(0,n)}}))} />
             <NumInput label="Custom Hours" val={cfg[p].roster} set={(n)=>setCfg(s=>({...s,[p]:{...s[p],roster:Math.max(0,n)}}))} />
           </div>
+          {sheetHours?.[p] != null && (
+            <div className="text-[11px] text-slate-600">
+              Source: Excel (Forecast Roster Hours)
+              <span className={`ml-2 px-1.5 py-0.5 rounded border ${!cfg[p].useRoster ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                {!cfg[p].useRoster ? 'Active' : 'Inactive (Custom set)'}
+              </span>
+            </div>
+          )}
         </div>
       ))}
     </div>
