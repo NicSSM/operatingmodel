@@ -316,7 +316,13 @@ export default function Page() {
                     <Button size="sm" variant={flowMode === "current" ? "default" : "ghost"} className="h-7 px-2" onClick={toCurrent}>Current</Button>
                   </div>
                 </div>
-                <SankeySimple cartons={totals.cartons} chCartons={chFlow} flowMode={flowMode} nvat={activeNvat} />
+                <SankeySimple
+                  cartons={totals.cartons}
+                  chCartons={chFlow}
+                  flowMode={flowMode}
+                  nvat={activeNvat}
+                  cfg={flowMode === "current" ? currentCfg : newCfg}
+                />
               </div>
 
               <div className="space-y-3">
@@ -509,7 +515,7 @@ function WaterfallBenefit({ rows, cur, next }: { rows: { name: string; current: 
   );
 }
 
-function SankeySimple({ cartons, chCartons, flowMode, nvat }: { cartons: number; chCartons: Record<string, number>; flowMode: "new" | "current"; nvat: { bounce: number; lf2d: number } }) {
+function SankeySimple({ cartons, chCartons, flowMode, nvat, cfg }: { cartons: number; chCartons: Record<string, number>; flowMode: "new" | "current"; nvat: { bounce: number; lf2d: number }; cfg: Record<ProcessKey, ProcCfg> }) {
   const W = 1600, H = 560;
   const stageX = [Math.round(W * 0.05), Math.round(W * 0.3), Math.round(W * 0.58), Math.round(W * 0.88)];
   const scale = (v: number) => Math.max(2, Math.sqrt(v) * 0.25);
@@ -527,21 +533,21 @@ function SankeySimple({ cartons, chCartons, flowMode, nvat }: { cartons: number;
   const digIdx = nodes.push({ x: stageX[3], y: 260, w: 14, h: 38, label: "Digital Shopkeeping", color: NODE_COLORS.Digital }) - 1;
   const onIdx = nodes.push({ x: stageX[3], y: 420, w: 14, h: 38, label: "Online", color: NODE_COLORS.Online }) - 1;
 
-  type Link = { from: number; to: number; v: number; color: string };
+  type Link = { from: number; to: number; v: number; color: string; proc?: ProcessKey; nvat?: boolean };
   const links: Link[] = [];
   const idxOfChannel = (name: string) => 1 + CHANNEL_ORDER.indexOf(name as (typeof CHANNEL_ORDER)[number]);
 
-  CHANNEL_ORDER.forEach((c) => { const v = chCartons[c] || 0; if (v > 0) links.push({ from: 0, to: idxOfChannel(c), v, color: NODE_COLORS[c] }); });
+  CHANNEL_ORDER.forEach((c) => { const v = chCartons[c] || 0; if (v > 0) links.push({ from: 0, to: idxOfChannel(c), v, color: NODE_COLORS[c], proc: "Decant" }); });
   const demandV = chCartons["Demand"] || 0;
   const nonDemV = chCartons["Non-demand"] || 0;
-  if (demandV > 0) links.push({ from: idxOfChannel("Demand"), to: loadfillIdx, v: demandV, color: NODE_COLORS["Demand"] });
-  if (nonDemV > 0) links.push({ from: idxOfChannel("Non-demand"), to: packIdx, v: nonDemV, color: NODE_COLORS["Non-demand"] });
-  (["Markup","New lines","Clearance","LP"] as const).forEach((c) => { const v = chCartons[c] || 0; if (v > 0) links.push({ from: idxOfChannel(c), to: digIdx, v, color: NODE_COLORS[c] }); });
-  const omsV = chCartons['OMS'] || 0; if (omsV > 0) links.push({ from: idxOfChannel('OMS'), to: onIdx, v: omsV, color: NODE_COLORS['OMS'] });
+  if (demandV > 0) links.push({ from: idxOfChannel("Demand"), to: loadfillIdx, v: demandV, color: NODE_COLORS["Demand"], proc: "Loadfill" });
+  if (nonDemV > 0) links.push({ from: idxOfChannel("Non-demand"), to: packIdx, v: nonDemV, color: NODE_COLORS["Non-demand"], proc: "Packaway" });
+  (["Markup","New lines","Clearance","LP"] as const).forEach((c) => { const v = chCartons[c] || 0; if (v > 0) links.push({ from: idxOfChannel(c), to: digIdx, v, color: NODE_COLORS[c], proc: "Digital" }); });
+  const omsV = chCartons['OMS'] || 0; if (omsV > 0) links.push({ from: idxOfChannel('OMS'), to: onIdx, v: omsV, color: NODE_COLORS['OMS'], proc: "Online" });
   const bounceV = demandV * clamp(nvat.bounce, 0, 0.6);
   const lf2dV = demandV * clamp(nvat.lf2d, 0, 0.6);
-  if (bounceV > 0) links.push({ from: loadfillIdx, to: packIdx, v: bounceV, color: "#ef4444" });
-  if (lf2dV > 0) links.push({ from: loadfillIdx, to: digIdx, v: lf2dV, color: "#ef4444" });
+  if (bounceV > 0) links.push({ from: loadfillIdx, to: packIdx, v: bounceV, color: "#ef4444", nvat: true });
+  if (lf2dV > 0) links.push({ from: loadfillIdx, to: digIdx, v: lf2dV, color: "#ef4444", nvat: true });
 
   const inbound: Record<number, number> = {};
   links.forEach((l) => { inbound[l.to] = (inbound[l.to] || 0) + l.v; });
@@ -549,6 +555,16 @@ function SankeySimple({ cartons, chCartons, flowMode, nvat }: { cartons: number;
   const path = (a: NodeT, b: NodeT) => {
     const x1 = a.x + a.w, y1 = a.y + a.h / 2; const x2 = b.x, y2 = b.y + b.h / 2;
     const dx = Math.max(40, (x2 - x1) * 0.6); return `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+  };
+  const midPoint = (a: NodeT, b: NodeT) => {
+    const x1 = a.x + a.w, y1 = a.y + a.h / 2; const x2 = b.x, y2 = b.y + b.h / 2;
+    return { x: (x1 + x2) / 2, y: (y1 + y2) / 2 };
+  };
+  const rateLabel = (p: ProcessKey) => {
+    const r = cfg[p]?.rate ?? 0;
+    const unit = cfg[p]?.unit === 'online' ? 'u' : 'ct';
+    const d = Number.isInteger(r) ? 0 : 1;
+    return `${fmt(r, d)} hrs/1000${unit}`;
   };
 
   return (
@@ -560,11 +576,22 @@ function SankeySimple({ cartons, chCartons, flowMode, nvat }: { cartons: number;
           const w = scale(l.v);
           const dash = w < 8 ? 6 : 10;
           const gap = w < 8 ? 12 : 16;
-          const dur = speed(l.v);
+          const rate = l.proc ? (cfg[l.proc]?.rate ?? null) : null;
+          const dur = (3 + Math.sqrt(Math.max(0, l.v)) / 18) * (rate == null ? 1 : clamp((rate as number) / 40, 0.4, 2.2));
+          const mid = midPoint(nodes[l.from], nodes[l.to]);
+          const label = l.proc ? rateLabel(l.proc) : null;
+          const labelW = label ? label.length * 6.8 + 10 : 0;
+          const labelH = 18;
           return (
             <g key={i}>
               <path d={d} fill="none" stroke={l.color} strokeOpacity={0.25} strokeWidth={w} strokeLinecap="round" />
               <path d={d} fill="none" stroke={l.color} strokeOpacity={0.9} strokeWidth={Math.max(2, w * 0.72)} strokeLinecap="round" strokeDasharray={`${dash} ${gap}`} style={{ animation: `flow ${dur}s linear infinite` }} />
+              {label && !l.nvat && (
+                <g>
+                  <rect x={mid.x - labelW / 2} y={mid.y - labelH - 6} width={labelW} height={labelH} rx={4} fill="#ffffff" fillOpacity={0.9} stroke={l.color} strokeOpacity={0.25} />
+                  <text x={mid.x} y={mid.y - 12} textAnchor="middle" fontSize={11} fill="#0f172a">{label}</text>
+                </g>
+              )}
             </g>
           );
         })}
@@ -583,7 +610,7 @@ function SankeySimple({ cartons, chCartons, flowMode, nvat }: { cartons: number;
                 <text x={n.x + n.w / 2} y={n.y + n.h / 2 + 4} textAnchor="middle" fontSize={11} fill="#0f172a">{abbr(Math.round(cartons))} ct</text>
               )}
               {inbound[i] != null && i >= loadfillIdx && (
-                <text x={n.x + n.w / 2} y={n.y + n.h + 14} textAnchor="middle" fontSize={12} fill="#475569">{fmt(Math.round(inbound[i]))} ct</text>
+                <text x={n.x + n.w / 2} y={n.y + n.h + 14} textAnchor="middle" fontSize={12} fill="#475569">{abbr(Math.round(inbound[i]))} {i === onIdx ? 'u' : 'ct'}</text>
               )}
             </g>
           );
