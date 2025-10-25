@@ -81,6 +81,24 @@ const DEFAULT_NEW: Record<ProcessKey, ProcCfg> = {
   Backfill: { unit: "cartons", useRoster: false, rate: 15, roster: 0 },
 };
 
+// Lean / VSM defaults
+const DEFAULT_VA: Record<ProcessKey, number> = {
+  Decant: 0.6,
+  Loadfill: 0.75,
+  Packaway: 0.65,
+  Digital: 0.7,
+  Online: 0.7,
+  Backfill: 0.5,
+};
+const ZERO_WAIT: Record<ProcessKey, number> = {
+  Decant: 0,
+  Loadfill: 0,
+  Packaway: 0,
+  Digital: 0,
+  Online: 0,
+  Backfill: 0,
+};
+
 // Utils
 const fmt = (n: unknown, d = 0) => {
   const x = Number(n);
@@ -223,6 +241,12 @@ export default function Page() {
     if (flowMode === "current") setNvatCur(next); else setNvatNew(next);
   };
 
+  // Lean / VSM parameters (Value-Add %, Wait hours per week)
+  const [vaCur, setVaCur] = useState<Record<ProcessKey, number>>(DEFAULT_VA);
+  const [vaNew, setVaNew] = useState<Record<ProcessKey, number>>(DEFAULT_VA);
+  const [waitCur, setWaitCur] = useState<Record<ProcessKey, number>>(ZERO_WAIT);
+  const [waitNew, setWaitNew] = useState<Record<ProcessKey, number>>(ZERO_WAIT);
+
   useEffect(() => {
     if (flowMode !== "current") return;
     setNvatCur((s) => ({ ...s, bounce: issues["non_dem"] ? 0.3 : 0.2, lf2d: issues["new_lines"] ? 0.25 : 0.15 }));
@@ -298,7 +322,11 @@ export default function Page() {
         </div>
 
         <Tabs defaultValue="overview">
-          <TabsList className="grid grid-cols-2 w-full md:w-auto"><TabsTrigger value="overview">Overview</TabsTrigger><TabsTrigger value="explorer">Process Explorer</TabsTrigger></TabsList>
+          <TabsList className="grid grid-cols-3 w-full md:w-auto">
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="explorer">Process Explorer</TabsTrigger>
+            <TabsTrigger value="lean">Lean VSM</TabsTrigger>
+          </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
             <Card className="shadow-sm"><CardContent className="p-4"><div className="text-sm font-medium mb-3">Model inputs</div><div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -399,6 +427,45 @@ export default function Page() {
             </CardContent></Card>
             <Card className="shadow-sm"><CardContent className="p-4 space-y-4"><div className="text-sm font-medium">Per‑process parameters (Current)</div><ProcTable cfg={currentCfg} setCfg={setCurrentCfg} sheetHours={sheetHours} /></CardContent></Card>
             <Card className="shadow-sm"><CardContent className="p-4 space-y-4"><div className="text-sm font-medium">Per‑process parameters (New)</div><ProcTable cfg={newCfg} setCfg={setNewCfg} sheetHours={sheetHours} /></CardContent></Card>
+          </TabsContent>
+          <TabsContent value="lean" className="space-y-6">
+            <Card className="shadow-sm"><CardContent className="p-4 space-y-3">
+              <div className="text-sm font-medium">Lean parameters</div>
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <div className="text-xs text-slate-600 mb-1">Current model</div>
+                  <LeanProcTable va={vaCur} setVa={setVaCur} wait={waitCur} setWait={setWaitCur} />
+                </div>
+                <div>
+                  <div className="text-xs text-slate-600 mb-1">New model</div>
+                  <LeanProcTable va={vaNew} setVa={setVaNew} wait={waitNew} setWait={setWaitNew} onImproveRate={(p, pct) => setNewCfg((s) => ({ ...s, [p]: { ...s[p], rate: Math.max(0, s[p].rate * (1 - pct)) } }))} />
+                </div>
+              </div>
+            </CardContent></Card>
+
+            <Card className="shadow-sm"><CardContent className="p-4 space-y-4">
+              <div className="text-sm font-medium">Value Stream Map</div>
+              <LeanVSM
+                curHours={totals.curByProc}
+                newHours={totals.newByProc}
+                curUnits={totals.curUnits}
+                newUnits={totals.newUnits}
+                vaCur={vaCur}
+                vaNew={vaNew}
+                waitCur={waitCur}
+                waitNew={waitNew}
+                cfgCur={currentCfg}
+                cfgNew={newCfg}
+              />
+            </CardContent></Card>
+
+            <Card className="shadow-sm"><CardContent className="p-4">
+              <div className="text-sm font-medium mb-2">Lean insights</div>
+              <LeanInsights curHours={totals.curByProc} newHours={totals.newByProc} vaCur={vaCur} vaNew={vaNew} waitCur={waitCur} waitNew={waitNew}
+                onApplyRate={(p, pct) => setNewCfg((s) => ({ ...s, [p]: { ...s[p], rate: Math.max(0, s[p].rate * (1 - pct)) } }))}
+                onReduceWait={(p, pct) => setWaitNew((w) => ({ ...w, [p]: Math.max(0, w[p] * (1 - pct)) }))}
+              />
+            </CardContent></Card>
           </TabsContent>
         </Tabs>
       </div>
@@ -619,6 +686,163 @@ function SankeySimple({ cartons, chCartons, flowMode, nvat, cfg }: { cartons: nu
       <div className="flex items-center justify-end gap-4 text-xs text-slate-600 mt-1">
         <div className="flex items-center gap-2"><span className="w-3 h-3 rounded" style={{ background: "#ef4444" }} /> NVAT flows</div>
       </div>
+    </div>
+  );
+}
+
+function LeanProcTable({ va, setVa, wait, setWait, onImproveRate }: { va: Record<ProcessKey, number>; setVa: React.Dispatch<React.SetStateAction<Record<ProcessKey, number>>>; wait: Record<ProcessKey, number>; setWait: React.Dispatch<React.SetStateAction<Record<ProcessKey, number>>>; onImproveRate?: (p: ProcessKey, pct: number) => void; }) {
+  return (
+    <div className="grid md:grid-cols-2 gap-4">
+      {PROCS.map((p) => (
+        <div key={p} className="border rounded-lg p-3 space-y-2">
+          <div className="text-sm font-medium">{PROC_LABEL(p)}</div>
+          <div className="space-y-2">
+            <div className="space-y-1">
+              <Label className="text-xs">Value-Add %</Label>
+              <Slider value={[Math.round((va[p] || 0) * 100)]} min={0} max={100} step={1} onValueChange={(v) => setVa((s) => ({ ...s, [p]: clamp((v[0] || 0) / 100, 0, 1) }))} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <NumInput label="Wait hours / week" val={wait[p] || 0} set={(n) => setWait((s) => ({ ...s, [p]: Math.max(0, n) }))} />
+              {onImproveRate && (
+                <div className="space-y-1">
+                  <Label className="text-xs">Improve rate (%)</Label>
+                  <div className="flex gap-2">
+                    {[5,10,15].map((pct) => (
+                      <Button key={pct} variant="outline" className="h-7 px-2" onClick={() => onImproveRate(p, pct/100)}>-{pct}%</Button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function LeanVSM({ curHours, newHours, curUnits, newUnits, vaCur, vaNew, waitCur, waitNew, cfgCur, cfgNew }: {
+  curHours: Record<ProcessKey, number>;
+  newHours: Record<ProcessKey, number>;
+  curUnits: Record<ProcessKey, number>;
+  newUnits: Record<ProcessKey, number>;
+  vaCur: Record<ProcessKey, number>;
+  vaNew: Record<ProcessKey, number>;
+  waitCur: Record<ProcessKey, number>;
+  waitNew: Record<ProcessKey, number>;
+  cfgCur: Record<ProcessKey, ProcCfg>;
+  cfgNew: Record<ProcessKey, ProcCfg>;
+}) {
+  const W = 1200, H = 360, pad = 24;
+  const rows: Array<{ label: string; hours: Record<ProcessKey, number>; units: Record<ProcessKey, number>; va: Record<ProcessKey, number>; wait: Record<ProcessKey, number>; cfg: Record<ProcessKey, ProcCfg> }>
+    = [
+      { label: 'Current', hours: curHours, units: curUnits, va: vaCur, wait: waitCur, cfg: cfgCur },
+      { label: 'New', hours: newHours, units: newUnits, va: vaNew, wait: waitNew, cfg: cfgNew },
+    ];
+
+  const totals = rows.map((r) => {
+    let vaT = 0, nvaT = 0, waitT = 0;
+    PROCS.forEach((p) => {
+      const h = Math.max(0, r.hours[p] || 0);
+      const vaf = clamp(r.va[p] ?? 0.7, 0, 1);
+      const vaH = h * vaf;
+      const nvaH = h * (1 - vaf);
+      const wH = Math.max(0, r.wait[p] || 0);
+      vaT += vaH; nvaT += nvaH; waitT += wH;
+    });
+    return { vaT, nvaT, waitT, lead: vaT + nvaT + waitT };
+  });
+  const maxLead = Math.max(1, ...totals.map((t) => t.lead));
+  const scaleX = (hrs: number) => (hrs / maxLead) * (W - pad * 2);
+
+  return (
+    <div className="w-full">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-[360px]">
+        {rows.map((r, rowIdx) => {
+          const y = pad + rowIdx * 150;
+          let x = pad;
+          return (
+            <g key={r.label}>
+              <text x={pad} y={y - 10} fontSize={12} fill="#334155">{r.label}</text>
+              {PROCS.map((p) => {
+                const h = Math.max(0, r.hours[p] || 0);
+                const vaf = clamp(r.va[p] ?? 0.7, 0, 1);
+                const vaH = h * vaf, nvaH = h * (1 - vaf), wH = Math.max(0, r.wait[p] || 0);
+                const w1 = Math.max(1, scaleX(vaH));
+                const w2 = Math.max(1, scaleX(nvaH));
+                const w3 = Math.max(1, scaleX(wH));
+                const yBox = y;
+                const Hbox = 28;
+                const xStart = x;
+                const unit = r.cfg[p].unit === 'online' ? 'u' : 'ct';
+                const rate = r.cfg[p].rate;
+                const u = Math.round(r.units[p] || 0);
+                const label = `${PROC_LABEL(p)} · ${fmt(rate)} hrs/1000${unit} · ${fmt(u)} ${unit}/wk`;
+                const out = (
+                  <g key={p}>
+                    <rect x={xStart} y={yBox} width={w1} height={Hbox} rx={5} fill="#bbf7d0" stroke="#10b981" />
+                    <rect x={xStart + w1} y={yBox} width={w2} height={Hbox} rx={5} fill="#fecaca" stroke="#ef4444" />
+                    <rect x={xStart + w1 + w2} y={yBox} width={w3} height={Hbox} rx={5} fill="#fde68a" stroke="#f59e0b" />
+                    <text x={xStart + (w1 + w2 + w3) / 2} y={yBox + Hbox / 2 + 4} textAnchor="middle" fontSize={11} fill="#0f172a">{label}</text>
+                    <text x={xStart + w1 / 2} y={yBox - 6} textAnchor="middle" fontSize={10} fill="#166534">VA {Math.round(vaf * 100)}%</text>
+                    {(nvaH > 0) && (<text x={xStart + w1 + w2 / 2} y={yBox - 6} textAnchor="middle" fontSize={10} fill="#991b1b">NVA {Math.round((1 - vaf) * 100)}%</text>)}
+                    {(wH > 0) && (<text x={xStart + w1 + w2 + w3 / 2} y={yBox - 6} textAnchor="middle" fontSize={10} fill="#92400e">Wait {fmt(wH)}h</text>)}
+                  </g>
+                );
+                x += (w1 + w2 + w3) + 14;
+                return out;
+              })}
+              <g>
+                <text x={pad} y={y + 54} fontSize={11} fill="#334155">Lead time</text>
+                <text x={pad + 70} y={y + 54} fontSize={12} fill="#0f172a">{fmt(totals[rowIdx].lead)} hrs</text>
+                <text x={pad + 170} y={y + 54} fontSize={11} fill="#166534">VA {fmt(totals[rowIdx].vaT)} hrs</text>
+                <text x={pad + 250} y={y + 54} fontSize={11} fill="#991b1b">NVA {fmt(totals[rowIdx].nvaT)} hrs</text>
+                <text x={pad + 330} y={y + 54} fontSize={11} fill="#92400e">Wait {fmt(totals[rowIdx].waitT)} hrs</text>
+                <text x={pad + 430} y={y + 54} fontSize={11} fill="#334155">VA ratio {Math.round((totals[rowIdx].vaT / Math.max(1, totals[rowIdx].lead)) * 100)}%</text>
+              </g>
+            </g>
+          );
+        })}
+      </svg>
+      <div className="text-xs text-slate-600">Green: Value-Add, Red: Non-Value-Add, Amber: Waiting</div>
+    </div>
+  );
+}
+
+function LeanInsights({ curHours, newHours, vaCur, vaNew, waitCur, waitNew, onApplyRate, onReduceWait }: {
+  curHours: Record<ProcessKey, number>;
+  newHours: Record<ProcessKey, number>;
+  vaCur: Record<ProcessKey, number>;
+  vaNew: Record<ProcessKey, number>;
+  waitCur: Record<ProcessKey, number>;
+  waitNew: Record<ProcessKey, number>;
+  onApplyRate: (p: ProcessKey, pct: number) => void;
+  onReduceWait: (p: ProcessKey, pct: number) => void;
+}) {
+  const mk = (p: ProcessKey) => {
+    const h = Math.max(0, curHours[p] || 0);
+    const vaf = clamp(vaCur[p] ?? 0.7, 0, 1);
+    const nvaH = h * (1 - vaf) + Math.max(0, waitCur[p] || 0);
+    const newH = Math.max(0, newHours[p] || 0);
+    const delta = h - newH;
+    return { p, name: PROC_LABEL(p), nvaH, h, newH, delta };
+  };
+  const rows = PROCS.map(mk).sort((a,b) => b.nvaH - a.nvaH).slice(0, 4);
+  return (
+    <div className="grid md:grid-cols-2 gap-3 text-sm">
+      {rows.map((r) => (
+        <div key={r.p} className="border rounded-lg p-3">
+          <div className="font-medium flex items-center justify-between">
+            <span>{r.name}</span>
+            <span className="text-xs text-slate-600">NVA {fmt(Math.round(r.nvaH))} hrs/wk</span>
+          </div>
+          <div className="text-xs text-slate-600">Opportunity: reduce wait and improve rate</div>
+          <div className="mt-2 flex gap-2">
+            <Button variant="outline" className="h-7 px-2" onClick={() => onReduceWait(r.p, 0.25)}>Reduce wait 25%</Button>
+            <Button variant="outline" className="h-7 px-2" onClick={() => onApplyRate(r.p, 0.1)}>Improve rate 10%</Button>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
