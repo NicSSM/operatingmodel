@@ -149,7 +149,7 @@ function useTotals(
       1
     );
 
-  const useCalc = (
+  const calcByProc = (
     cfg: Record<ProcessKey, ProcCfg>,
     units: Record<ProcessKey, number>
   ): Record<ProcessKey, number> =>
@@ -162,9 +162,9 @@ function useTotals(
       return o;
     }, {} as Record<ProcessKey, number>);
 
-  const curByProc = useCalc(currentCfg, curUnits);
+  const curByProc = calcByProc(currentCfg, curUnits);
   const newByProc = Object.fromEntries(
-    PROCS.map((p) => [p, useCalc(newCfg, newUnits)[p] * mult(p, true)])
+    PROCS.map((p) => [p, calcByProc(newCfg, newUnits)[p] * mult(p, true)])
   ) as Record<ProcessKey, number>;
 
   const sum = (o: Record<ProcessKey, number>) => Object.values(o).reduce((a, b) => a + b, 0);
@@ -421,7 +421,7 @@ export default function Page() {
 
           <TabsContent value="explorer" className="space-y-6">
             <Card className="shadow-sm"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium">Import forecast hours (.xlsx)</div>
-              <div className="grid sm:grid-cols-2 gap-3"><div className="space-y-1"><Label className="text-xs">File (sheet: "Forecast Roster Hours")</Label><Input type="file" accept=".xlsx,.xls" onChange={onExcel} /></div>
+              <div className="grid sm:grid-cols-2 gap-3"><div className="space-y-1"><Label className="text-xs">File (sheet: &quot;Forecast Roster Hours&quot;)</Label><Input type="file" accept=".xlsx,.xls" onChange={onExcel} /></div>
                 <div className="space-y-1"><Label className="text-xs">Status</Label><div className="text-sm text-slate-700">{sheetHours ? `${Object.keys(sheetHours).length} processes loaded: ${Object.keys(sheetHours).join(", ")}` : "No file loaded"}</div></div>
               </div>
             </CardContent></Card>
@@ -461,7 +461,7 @@ export default function Page() {
 
             <Card className="shadow-sm"><CardContent className="p-4">
               <div className="text-sm font-medium mb-2">Lean insights</div>
-              <LeanInsights curHours={totals.curByProc} newHours={totals.newByProc} vaCur={vaCur} vaNew={vaNew} waitCur={waitCur} waitNew={waitNew}
+              <LeanInsights curHours={totals.curByProc} newHours={totals.newByProc} vaCur={vaCur} waitCur={waitCur}
                 onApplyRate={(p, pct) => setNewCfg((s) => ({ ...s, [p]: { ...s[p], rate: Math.max(0, s[p].rate * (1 - pct)) } }))}
                 onReduceWait={(p, pct) => setWaitNew((w) => ({ ...w, [p]: Math.max(0, w[p] * (1 - pct)) }))}
               />
@@ -582,11 +582,10 @@ function WaterfallBenefit({ rows, cur, next }: { rows: { name: string; current: 
   );
 }
 
-function SankeySimple({ cartons, chCartons, flowMode, nvat, cfg }: { cartons: number; chCartons: Record<string, number>; flowMode: "new" | "current"; nvat: { bounce: number; lf2d: number }; cfg: Record<ProcessKey, ProcCfg> }) {
+function SankeySimple({ cartons, chCartons, nvat, cfg, flowMode: _flowMode }: { cartons: number; chCartons: Record<string, number>; flowMode: "new" | "current"; nvat: { bounce: number; lf2d: number }; cfg: Record<ProcessKey, ProcCfg> }) {
   const W = 1600, H = 560;
   const stageX = [Math.round(W * 0.05), Math.round(W * 0.3), Math.round(W * 0.58), Math.round(W * 0.88)];
   const scale = (v: number) => Math.max(2, Math.sqrt(v) * 0.25);
-  const speed = (v: number) => 4 + Math.sqrt(Math.max(0, v)) / 14; // slower overall; larger volume ⇒ longer duration (slower)
   const abbr = (n: number) => (n >= 1000 ? `${Math.round(n / 100) / 10}k` : `${Math.round(n)}`);
   const CHANNEL_ORDER = ["Demand", "Non-demand", "Markup", "New lines", "Clearance", "LP", "OMS"] as const;
   const yCh = Object.fromEntries(CHANNEL_ORDER.map((c, i) => [c, 80 + i * 64])) as Record<string, number>;
@@ -741,14 +740,27 @@ function LeanVSM({ curHours, newHours, curUnits, newUnits, vaCur, vaNew, waitCur
   const [w, setW] = React.useState(1000);
   React.useEffect(() => {
     const el = containerRef.current; if (!el) return;
-    const ro = new (window as any).ResizeObserver?.((entries: any[]) => {
-      for (const e of entries) { if (e.contentRect?.width) setW(Math.max(600, Math.round(e.contentRect.width))); }
-    });
+    let ro: ResizeObserver | null = null;
+    if (typeof window !== 'undefined' && 'ResizeObserver' in window) {
+      ro = new window.ResizeObserver((entries: ResizeObserverEntry[]) => {
+        for (const entry of entries) {
+          const w = entry.contentRect?.width;
+          if (w) setW(Math.max(600, Math.round(w)));
+        }
+      });
+    }
     if (ro && el) { ro.observe(el); }
     const onWin = () => setW(Math.max(600, Math.round(el.clientWidth || 1000)));
-    window.addEventListener('resize', onWin);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('resize', onWin);
+    }
     onWin();
-    return () => { window.removeEventListener('resize', onWin); if (ro && el) ro.unobserve(el); };
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('resize', onWin);
+      }
+      if (ro && el) ro.unobserve(el);
+    };
   }, []);
   const W = w; // responsive width
   const rows: Array<{ label: string; hours: Record<ProcessKey, number>; units: Record<ProcessKey, number>; va: Record<ProcessKey, number>; wait: Record<ProcessKey, number>; cfg: Record<ProcessKey, ProcCfg> }>
@@ -828,13 +840,11 @@ function LeanVSM({ curHours, newHours, curUnits, newUnits, vaCur, vaNew, waitCur
   );
 }
 
-function LeanInsights({ curHours, newHours, vaCur, vaNew, waitCur, waitNew, onApplyRate, onReduceWait }: {
+function LeanInsights({ curHours, newHours, vaCur, waitCur, onApplyRate, onReduceWait }: {
   curHours: Record<ProcessKey, number>;
   newHours: Record<ProcessKey, number>;
   vaCur: Record<ProcessKey, number>;
-  vaNew: Record<ProcessKey, number>;
   waitCur: Record<ProcessKey, number>;
-  waitNew: Record<ProcessKey, number>;
   onApplyRate: (p: ProcessKey, pct: number) => void;
   onReduceWait: (p: ProcessKey, pct: number) => void;
 }) {
@@ -865,4 +875,6 @@ function LeanInsights({ curHours, newHours, vaCur, vaNew, waitCur, waitNew, onAp
     </div>
   );
 }
+
+
 
