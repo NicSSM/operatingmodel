@@ -18,7 +18,7 @@ type ProcCfg = { unit: Unit; useRoster: boolean; rate: number; roster: number };
 type Issue = { id: string; name: string; impact: Partial<Record<ProcessKey, number>> };
 const ISSUES: Issue[] = [
   { id: "loadfill_incomplete", name: "Loadfill Incomplete", impact: { Loadfill: 0.1 } },
-  { id: "non_dem", name: "High Non‑demand Mix", impact: { Loadfill: -0.1, Packaway: 0.05 } },
+  { id: "non_dem", name: "High Non-demand Mix", impact: { Loadfill: -0.1, Packaway: 0.05 } },
   { id: "new_lines", name: "High New Line Mix", impact: { Loadfill: -0.1, Digital: 0.1 } },
 ];
 
@@ -701,14 +701,14 @@ function LeanProcTable({ va, setVa, wait, setWait, onImproveRate }: { va: Record
               <Label className="text-xs">Value-Add %</Label>
               <Slider value={[Math.round((va[p] || 0) * 100)]} min={0} max={100} step={1} onValueChange={(v) => setVa((s) => ({ ...s, [p]: clamp((v[0] || 0) / 100, 0, 1) }))} />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <NumInput label="Wait hours / week" val={wait[p] || 0} set={(n) => setWait((s) => ({ ...s, [p]: Math.max(0, n) }))} />
               {onImproveRate && (
                 <div className="space-y-1">
                   <Label className="text-xs">Improve rate (%)</Label>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2 gap-y-1">
                     {[5,10,15].map((pct) => (
-                      <Button key={pct} variant="outline" className="h-7 px-2" onClick={() => onImproveRate(p, pct/100)}>-{pct}%</Button>
+                      <Button key={pct} variant="outline" className="h-7 px-2 text-xs" onClick={() => onImproveRate(p, pct/100)}>-{pct}%</Button>
                     ))}
                   </div>
                 </div>
@@ -733,7 +733,24 @@ function LeanVSM({ curHours, newHours, curUnits, newUnits, vaCur, vaNew, waitCur
   cfgCur: Record<ProcessKey, ProcCfg>;
   cfgNew: Record<ProcessKey, ProcCfg>;
 }) {
-  const W = 1200, H = 360, pad = 24;
+  const pad = 24;
+  const rowGap = 140;
+  const boxH = 28;
+  const gap = 14;
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
+  const [w, setW] = React.useState(1000);
+  React.useEffect(() => {
+    const el = containerRef.current; if (!el) return;
+    const ro = new (window as any).ResizeObserver?.((entries: any[]) => {
+      for (const e of entries) { if (e.contentRect?.width) setW(Math.max(600, Math.round(e.contentRect.width))); }
+    });
+    if (ro && el) { ro.observe(el); }
+    const onWin = () => setW(Math.max(600, Math.round(el.clientWidth || 1000)));
+    window.addEventListener('resize', onWin);
+    onWin();
+    return () => { window.removeEventListener('resize', onWin); if (ro && el) ro.unobserve(el); };
+  }, []);
+  const W = w; // responsive width
   const rows: Array<{ label: string; hours: Record<ProcessKey, number>; units: Record<ProcessKey, number>; va: Record<ProcessKey, number>; wait: Record<ProcessKey, number>; cfg: Record<ProcessKey, ProcCfg> }>
     = [
       { label: 'Current', hours: curHours, units: curUnits, va: vaCur, wait: waitCur, cfg: cfgCur },
@@ -753,13 +770,15 @@ function LeanVSM({ curHours, newHours, curUnits, newUnits, vaCur, vaNew, waitCur
     return { vaT, nvaT, waitT, lead: vaT + nvaT + waitT };
   });
   const maxLead = Math.max(1, ...totals.map((t) => t.lead));
-  const scaleX = (hrs: number) => (hrs / maxLead) * (W - pad * 2);
+  const avail = W - pad * 2 - (PROCS.length - 1) * gap; // leave space for inter-process gaps
+  const scaleX = (hrs: number) => (hrs / maxLead) * Math.max(100, avail);
+  const H = pad * 2 + rowGap * rows.length + 40; // dynamic height
 
   return (
-    <div className="w-full">
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-[360px]">
+    <div className="w-full" ref={containerRef}>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" preserveAspectRatio="xMidYMid meet">
         {rows.map((r, rowIdx) => {
-          const y = pad + rowIdx * 150;
+          const y = pad + rowIdx * rowGap;
           let x = pad;
           return (
             <g key={r.label}>
@@ -772,7 +791,7 @@ function LeanVSM({ curHours, newHours, curUnits, newUnits, vaCur, vaNew, waitCur
                 const w2 = Math.max(1, scaleX(nvaH));
                 const w3 = Math.max(1, scaleX(wH));
                 const yBox = y;
-                const Hbox = 28;
+                const Hbox = boxH;
                 const xStart = x;
                 const unit = r.cfg[p].unit === 'online' ? 'u' : 'ct';
                 const rate = r.cfg[p].rate;
@@ -783,13 +802,13 @@ function LeanVSM({ curHours, newHours, curUnits, newUnits, vaCur, vaNew, waitCur
                     <rect x={xStart} y={yBox} width={w1} height={Hbox} rx={5} fill="#bbf7d0" stroke="#10b981" />
                     <rect x={xStart + w1} y={yBox} width={w2} height={Hbox} rx={5} fill="#fecaca" stroke="#ef4444" />
                     <rect x={xStart + w1 + w2} y={yBox} width={w3} height={Hbox} rx={5} fill="#fde68a" stroke="#f59e0b" />
-                    <text x={xStart + (w1 + w2 + w3) / 2} y={yBox + Hbox / 2 + 4} textAnchor="middle" fontSize={11} fill="#0f172a">{label}</text>
+                    <text x={xStart + (w1 + w2 + w3) / 2} y={yBox + Hbox / 2 + 4} textAnchor="middle" fontSize={10} fill="#0f172a">{label}</text>
                     <text x={xStart + w1 / 2} y={yBox - 6} textAnchor="middle" fontSize={10} fill="#166534">VA {Math.round(vaf * 100)}%</text>
                     {(nvaH > 0) && (<text x={xStart + w1 + w2 / 2} y={yBox - 6} textAnchor="middle" fontSize={10} fill="#991b1b">NVA {Math.round((1 - vaf) * 100)}%</text>)}
                     {(wH > 0) && (<text x={xStart + w1 + w2 + w3 / 2} y={yBox - 6} textAnchor="middle" fontSize={10} fill="#92400e">Wait {fmt(wH)}h</text>)}
                   </g>
                 );
-                x += (w1 + w2 + w3) + 14;
+                x += (w1 + w2 + w3) + gap;
                 return out;
               })}
               <g>
@@ -837,12 +856,13 @@ function LeanInsights({ curHours, newHours, vaCur, vaNew, waitCur, waitNew, onAp
             <span className="text-xs text-slate-600">NVA {fmt(Math.round(r.nvaH))} hrs/wk</span>
           </div>
           <div className="text-xs text-slate-600">Opportunity: reduce wait and improve rate</div>
-          <div className="mt-2 flex gap-2">
-            <Button variant="outline" className="h-7 px-2" onClick={() => onReduceWait(r.p, 0.25)}>Reduce wait 25%</Button>
-            <Button variant="outline" className="h-7 px-2" onClick={() => onApplyRate(r.p, 0.1)}>Improve rate 10%</Button>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button variant="outline" className="h-7 px-2 text-xs" onClick={() => onReduceWait(r.p, 0.25)}>Reduce wait 25%</Button>
+            <Button variant="outline" className="h-7 px-2 text-xs" onClick={() => onApplyRate(r.p, 0.1)}>Improve rate 10%</Button>
           </div>
         </div>
       ))}
     </div>
   );
 }
+
