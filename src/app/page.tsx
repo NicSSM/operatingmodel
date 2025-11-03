@@ -314,11 +314,14 @@ export default function Page() {
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="flex items-center gap-3"><Factory className="w-6 h-6 text-slate-700" /><h1 className="text-xl font-semibold">Kmart Store Operating Model</h1></div>
 
-        <div className="grid md:grid-cols-4 gap-4">
-          <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-sky-600 via-sky-500 to-sky-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Total Current Hours</div><div className="text-3xl font-semibold">{fmt(Math.round(totals.curHours))}</div></CardContent></Card>
-          <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-emerald-600 via-emerald-500 to-emerald-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Total New Model Hours</div><div className="text-3xl font-semibold">{fmt(Math.round(totals.newHours))}</div></CardContent></Card>
-          <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-violet-600 via-violet-500 to-violet-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Estimated Benefit (per store)</div><div className="text-3xl font-semibold">{fmt(Math.round(totals.benefit))} hrs</div><div className="opacity-90">≈ A${fmt(Math.round(totals.savings))}/week</div></CardContent></Card>
-          <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-rose-600 via-rose-500 to-rose-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">{`Network Benefit (${inputs.stores} stores)`}</div><div className="text-3xl font-semibold">{fmt(Math.round(totals.benefit * inputs.stores))} hrs</div><div className="opacity-90">≈ A${fmt(Math.round(totals.savings * inputs.stores))}/week</div></CardContent></Card>
+        <div className="grid lg:grid-cols-3 gap-4">
+          <div className="grid md:grid-cols-4 gap-4 lg:col-span-2">
+            <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-sky-600 via-sky-500 to-sky-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Total Current Hours</div><div className="text-3xl font-semibold">{fmt(Math.round(totals.curHours))}</div></CardContent></Card>
+            <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-emerald-600 via-emerald-500 to-emerald-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Total New Model Hours</div><div className="text-3xl font-semibold">{fmt(Math.round(totals.newHours))}</div></CardContent></Card>
+            <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-violet-600 via-violet-500 to-violet-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Estimated Benefit (per store)</div><div className="text-3xl font-semibold">{fmt(Math.round(totals.benefit))} hrs</div><div className="opacity-90">≈ A${fmt(Math.round(totals.savings))}/week</div></CardContent></Card>
+            <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-rose-600 via-rose-500 to-rose-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">{`Network Benefit (${inputs.stores} stores)`}</div><div className="text-3xl font-semibold">{fmt(Math.round(totals.benefit * inputs.stores))} hrs</div><div className="opacity-90">≈ A${fmt(Math.round(totals.savings * inputs.stores))}/week</div></CardContent></Card>
+          </div>
+          <Card className="shadow-sm lg:col-span-1"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium">Net savings composition (by process)</div><SavingsDonut deltas={deltaRows} net={totals.benefit} /></CardContent></Card>
         </div>
 
         <Tabs defaultValue="overview">
@@ -350,32 +353,24 @@ export default function Page() {
                   flowMode={flowMode}
                   nvat={activeNvat}
                   cfg={flowMode === "current" ? currentCfg : newCfg}
+                  procHours={flowMode === "current" ? totals.curByProc : totals.newByProc}
                 />
               </div>
 
-              <div className="space-y-3">
-                <div className="flex items-center justify-between"><div className="text-sm font-medium">Category split</div><div className="text-xs text-slate-600">Remaining: {Math.max(0, 100 - Math.round(totalSplit * 100))}%</div></div>
-                <div className="h-2 rounded bg-slate-200 overflow-hidden flex">
-                  {CAT_KEYS.map((k) => { const w = Math.round((split[k] || 0) * 100); const base = k.replace(" %", " "); const c = NODE_COLORS[base.trim()] || "#cbd5e1"; return <div key={k} style={{ width: w + "%", backgroundColor: c }} />; })}
-                </div>
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {CAT_KEYS.map((k) => { const left = leftFor(k); return (
-                    <PercentSlider key={k} label={k} value={split[k]} maxLeft={left} onChange={(v) => setSplit((s) => ({ ...s, [k]: clamp(v, 0, left) }))} />
-                  ); })}
-                </div>
-                <div className="grid sm:grid-cols-2 gap-3 mt-2">
-                  <div className="space-y-2 p-2 rounded-lg border bg-white"><div className="flex items-center justify-between"><div className="text-sm">NVAT — Bounce‑back from Loadfill</div><div className="text-xs text-slate-500">{Math.round((activeNvat.bounce || 0) * 100)}%</div></div>
-                    <Slider value={[Math.round((activeNvat.bounce || 0) * 100)]} min={0} max={40} step={1} onValueChange={(v) => setActiveNvat("bounce", (v[0] || 0) / 100)} />
-                  </div>
-                  <div className="space-y-2 p-2 rounded-lg border bg-white"><div className="flex items-center justify-between"><div className="text-sm">NVAT — Loadfill → Digital Shopkeeping</div><div className="text-xs text-slate-500">{Math.round((activeNvat.lf2d || 0) * 100)}%</div></div>
-                    <Slider value={[Math.round((activeNvat.lf2d || 0) * 100)]} min={0} max={40} step={1} onValueChange={(v) => setActiveNvat("lf2d", (v[0] || 0) / 100)} />
-                  </div>
-                </div>
-              </div>
+              {/* Collapsible category controls */}
+              <CategoryControls
+                title="Category controls"
+                remainingPct={Math.max(0, 100 - Math.round(totalSplit * 100))}
+                split={split}
+                setSplit={setSplit}
+                leftFor={leftFor}
+                activeNvat={activeNvat}
+                setActiveNvat={setActiveNvat}
+              />
             </CardContent></Card>
 
+            {/* Grouped: Annualised benefit + Waterfall */}
             <div className="grid lg:grid-cols-2 gap-4">
-              <Card className="shadow-sm"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium">Net savings composition (by process)</div><SavingsDonut deltas={deltaRows} net={totals.benefit} /></CardContent></Card>
               <Card className="shadow-sm"><CardContent className="p-4"><div className="text-sm font-medium mb-1">Annualised network benefit</div><div className="text-3xl font-semibold">A${fmt(networkAnnual)}</div><div className="text-sm text-slate-600 mt-1">Weekly: A${fmt(Math.round(totals.savings * inputs.stores))} · Saved: {pctSaved}% of current hours</div>
                 <div className="mt-3"><div className="text-xs text-slate-600 mb-1">Confidence levels</div>
                   <div className="grid grid-cols-3 gap-2 text-sm">{[{ label: "Conservative", m: 0.8 }, { label: "Expected", m: 1.0 }, { label: "Stretch", m: 1.2 }].map((b) => (
@@ -383,9 +378,10 @@ export default function Page() {
                   ))}</div>
                 </div>
               </CardContent></Card>
+              <Card className="shadow-sm"><CardContent className="p-4"><div className="text-sm font-medium mb-2">Benefit waterfall: Current → processes → New</div><WaterfallBenefit rows={procRows} cur={totals.curHours} next={totals.newHours} /></CardContent></Card>
             </div>
 
-            <Card className="shadow-sm"><CardContent className="p-4"><div className="text-sm font-medium mb-2">Benefit waterfall: Current → processes → New</div><WaterfallBenefit rows={procRows} cur={totals.curHours} next={totals.newHours} /></CardContent></Card>
+            {/* Waterfall moved up into grouped section */}
 
             <Card className="shadow-sm"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium">Issue scenarios</div>
               <div className="grid md:grid-cols-3 gap-4">{ISSUES.map((it) => (
@@ -582,7 +578,7 @@ function WaterfallBenefit({ rows, cur, next }: { rows: { name: string; current: 
   );
 }
 
-function SankeySimple({ cartons, chCartons, nvat, cfg, flowMode: _flowMode }: { cartons: number; chCartons: Record<string, number>; flowMode: "new" | "current"; nvat: { bounce: number; lf2d: number }; cfg: Record<ProcessKey, ProcCfg> }) {
+function SankeySimple({ cartons, chCartons, nvat, cfg, flowMode: _flowMode, procHours }: { cartons: number; chCartons: Record<string, number>; flowMode: "new" | "current"; nvat: { bounce: number; lf2d: number }; cfg: Record<ProcessKey, ProcCfg>; procHours: Record<ProcessKey, number> }) {
   const W = 1600, H = 560;
   const stageX = [Math.round(W * 0.05), Math.round(W * 0.3), Math.round(W * 0.58), Math.round(W * 0.88)];
   const scale = (v: number) => Math.max(2, Math.sqrt(v) * 0.25);
@@ -617,6 +613,12 @@ function SankeySimple({ cartons, chCartons, nvat, cfg, flowMode: _flowMode }: { 
 
   const inbound: Record<number, number> = {};
   links.forEach((l) => { inbound[l.to] = (inbound[l.to] || 0) + l.v; });
+
+  // Hours bars scaling for process nodes
+  const PROC_INDEX: Record<ProcessKey, number> = { Decant: 0, Loadfill: loadfillIdx, Packaway: packIdx, Digital: digIdx, Online: onIdx, Backfill: -1 };
+  const procKeys: ProcessKey[] = ["Decant","Loadfill","Packaway","Digital","Online"];
+  const maxHours = Math.max(1, ...procKeys.map((p) => Math.max(0, procHours[p] || 0)));
+  const barW = (h: number) => 30 + ((Math.max(0, h) / maxHours) * 120);
 
   const path = (a: NodeT, b: NodeT) => {
     const x1 = a.x + a.w, y1 = a.y + a.h / 2; const x2 = b.x, y2 = b.y + b.h / 2;
@@ -665,6 +667,9 @@ function SankeySimple({ cartons, chCartons, nvat, cfg, flowMode: _flowMode }: { 
           const isChannel = i > 0 && i <= CHANNEL_ORDER.length;
           const catLabel = isChannel ? (CHANNEL_ORDER[i - 1] as string) : "";
           const catVal = isChannel ? Math.round(chCartons[catLabel] || 0) : 0;
+          const processForIndex = Object.entries(PROC_INDEX).find(([, idx]) => idx === i)?.[0] as ProcessKey | undefined;
+          const hrs = processForIndex ? Math.max(0, procHours[processForIndex] || 0) : 0;
+          const barWidth = processForIndex ? barW(hrs) : 0;
           return (
             <g key={i}>
               <rect x={n.x} y={n.y} width={n.w} height={n.h} rx={5} fill="#f8fafc" stroke={n.color} />
@@ -678,6 +683,12 @@ function SankeySimple({ cartons, chCartons, nvat, cfg, flowMode: _flowMode }: { 
               {inbound[i] != null && i >= loadfillIdx && (
                 <text x={n.x + n.w / 2} y={n.y + n.h + 14} textAnchor="middle" fontSize={12} fill="#475569">{abbr(Math.round(inbound[i]))} {i === onIdx ? 'u' : 'ct'}</text>
               )}
+              {processForIndex && hrs > 0 && (
+                <g>
+                  <rect x={n.x + n.w / 2 - barWidth / 2} y={n.y + n.h + 22} width={barWidth} height={6} rx={3} fill={n.color} fillOpacity={0.35} />
+                  <text x={n.x + n.w / 2} y={n.y + n.h + 38} textAnchor="middle" fontSize={11} fill="#0f172a">{fmt(Math.round(hrs))} hrs</text>
+                </g>
+              )}
             </g>
           );
         })}
@@ -685,6 +696,49 @@ function SankeySimple({ cartons, chCartons, nvat, cfg, flowMode: _flowMode }: { 
       <div className="flex items-center justify-end gap-4 text-xs text-slate-600 mt-1">
         <div className="flex items-center gap-2"><span className="w-3 h-3 rounded" style={{ background: "#ef4444" }} /> NVAT flows</div>
       </div>
+    </div>
+  );
+}
+
+function CategoryControls({ title, remainingPct, split, setSplit, leftFor, activeNvat, setActiveNvat }: {
+  title: string;
+  remainingPct: number;
+  split: Record<CatKey, number>;
+  setSplit: React.Dispatch<React.SetStateAction<Record<CatKey, number>>>;
+  leftFor: (k: CatKey) => number;
+  activeNvat: { bounce: number; lf2d: number };
+  setActiveNvat: (k: "bounce" | "lf2d", v: number) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-medium">{title}</div>
+        <div className="flex items-center gap-2">
+          <div className="text-xs text-slate-600">Remaining: {Math.max(0, remainingPct)}%</div>
+          <Button variant="outline" className="h-7 px-2" onClick={() => setOpen((v) => !v)}>{open ? 'Hide' : 'Show'}</Button>
+        </div>
+      </div>
+      {open && (
+        <>
+          <div className="h-2 rounded bg-slate-200 overflow-hidden flex">
+            {CAT_KEYS.map((k) => { const w = Math.round((split[k] || 0) * 100); const base = k.replace(" %", " "); const c = NODE_COLORS[base.trim()] || "#cbd5e1"; return <div key={k} style={{ width: w + "%", backgroundColor: c }} />; })}
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {CAT_KEYS.map((k) => { const left = leftFor(k); return (
+              <PercentSlider key={k} label={k} value={split[k]} maxLeft={left} onChange={(v) => setSplit((s) => ({ ...s, [k]: clamp(v, 0, left) }))} />
+            ); })}
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3 mt-2">
+            <div className="space-y-2 p-2 rounded-lg border bg-white"><div className="flex items-center justify-between"><div className="text-sm">NVAT — Bounce‑back from Loadfill</div><div className="text-xs text-slate-500">{Math.round((activeNvat.bounce || 0) * 100)}%</div></div>
+              <Slider value={[Math.round((activeNvat.bounce || 0) * 100)]} min={0} max={40} step={1} onValueChange={(v) => setActiveNvat("bounce", (v[0] || 0) / 100)} />
+            </div>
+            <div className="space-y-2 p-2 rounded-lg border bg-white"><div className="flex items-center justify-between"><div className="text-sm">NVAT — Loadfill → Digital Shopkeeping</div><div className="text-xs text-slate-500">{Math.round((activeNvat.lf2d || 0) * 100)}%</div></div>
+              <Slider value={[Math.round((activeNvat.lf2d || 0) * 100)]} min={0} max={40} step={1} onValueChange={(v) => setActiveNvat("lf2d", (v[0] || 0) / 100)} />
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
