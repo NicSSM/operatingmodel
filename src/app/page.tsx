@@ -273,6 +273,10 @@ export default function Page() {
   const perProc = PROCS.map((p) => ({ key: p, name: PROC_LABEL(p), current: totals.curByProc[p] || 0, next: totals.newByProc[p] || 0 }));
   const procRows = perProc.map(({ name, current, next }) => ({ name, current, next }));
   const deltaRows = perProc.map(({ key, name, current, next }) => ({ key, name, delta: Math.round(current - next) }));
+  // Productivity: cartons per hour (per store)
+  const curProd = totals.curHours > 0 ? totals.cartons / totals.curHours : 0;
+  const newProd = totals.newHours > 0 ? totals.cartons / totals.newHours : 0;
+  const prodDelta = newProd - curProd;
 
   const pctSaved = totals.curHours ? Math.round((totals.benefit / totals.curHours) * 100) : 0;
   const networkAnnual = Math.round(Math.round(totals.savings) * inputs.stores * 52);
@@ -316,10 +320,10 @@ export default function Page() {
 
         <div className="grid lg:grid-cols-3 gap-4">
           <div className="grid md:grid-cols-4 gap-4 lg:col-span-2">
-            <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-sky-600 via-sky-500 to-sky-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Total Current Hours</div><div className="text-3xl font-semibold">{fmt(Math.round(totals.curHours))}</div></CardContent></Card>
-            <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-emerald-600 via-emerald-500 to-emerald-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Total New Model Hours</div><div className="text-3xl font-semibold">{fmt(Math.round(totals.newHours))}</div></CardContent></Card>
-            <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-violet-600 via-violet-500 to-violet-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Estimated Benefit (per store)</div><div className="text-3xl font-semibold">{fmt(Math.round(totals.benefit))} hrs</div><div className="opacity-90">≈ A${fmt(Math.round(totals.savings))}/week</div></CardContent></Card>
-            <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-rose-600 via-rose-500 to-rose-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">{`Network Benefit (${inputs.stores} stores)`}</div><div className="text-3xl font-semibold">{fmt(Math.round(totals.benefit * inputs.stores))} hrs</div><div className="opacity-90">≈ A${fmt(Math.round(totals.savings * inputs.stores))}/week</div></CardContent></Card>
+            <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-sky-600 via-sky-500 to-sky-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Total Current Hours</div><div className="text-3xl font-semibold">{fmt(Math.round(totals.curHours))}</div><div className="opacity-90 text-xs mt-1">Productivity: {fmt(curProd, 2)} ct/hr</div></CardContent></Card>
+            <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-emerald-600 via-emerald-500 to-emerald-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Total New Model Hours</div><div className="text-3xl font-semibold">{fmt(Math.round(totals.newHours))}</div><div className="opacity-90 text-xs mt-1">Productivity: {fmt(newProd, 2)} ct/hr</div></CardContent></Card>
+            <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-violet-600 via-violet-500 to-violet-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Estimated Benefit (per store)</div><div className="text-3xl font-semibold">{fmt(Math.round(totals.benefit))} hrs</div><div className="opacity-90">≈ A${fmt(Math.round(totals.savings))}/week</div><div className="opacity-90 text-xs mt-1">Prod Δ: {prodDelta >= 0 ? '+' : ''}{fmt(prodDelta, 2)} ct/hr</div></CardContent></Card>
+            <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-rose-600 via-rose-500 to-rose-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">{`Network Benefit (${inputs.stores} stores)`}</div><div className="text-3xl font-semibold">{fmt(Math.round(totals.benefit * inputs.stores))} hrs</div><div className="opacity-90">≈ A${fmt(Math.round(totals.savings * inputs.stores))}/week</div><div className="opacity-90 text-xs mt-1">Prod Δ: {prodDelta >= 0 ? '+' : ''}{fmt(prodDelta, 2)} ct/hr</div></CardContent></Card>
           </div>
           <Card className="shadow-sm lg:col-span-1"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium">Net savings composition (by process)</div><SavingsDonut deltas={deltaRows} net={totals.benefit} /></CardContent></Card>
         </div>
@@ -709,7 +713,7 @@ function CategoryControls({ title, remainingPct, split, setSplit, leftFor, activ
   activeNvat: { bounce: number; lf2d: number };
   setActiveNvat: (k: "bounce" | "lf2d", v: number) => void;
 }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
