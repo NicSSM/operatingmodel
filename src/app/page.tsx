@@ -136,19 +136,28 @@ function buildModel(
     OMS: cartons * g("OMS %"),
   };
 
-  const mapCur = (): Record<ProcessKey, number> => {
+  const chBaseline: Record<string, number> = {
+    Demand: cartons,
+    "Non-demand": 0,
+    Markup: 0,
+    Clearance: 0,
+    "New lines": 0,
+    LP: 0,
+    OMS: 0,
+  };
+
+  const buildUnitMap = (source: Record<string, number>): Record<ProcessKey, number> => {
     const r: Record<ProcessKey, number> = { Decant: cartons, Loadfill: 0, Packaway: 0, Digital: 0, Online: online, Backfill: 0 };
-    r.Loadfill += chCartons.Demand;
-    r.Packaway += chCartons["Non-demand"];
-    const extra = chCartons["New lines"] + chCartons.Markup + chCartons.Clearance + chCartons.LP;
+    r.Loadfill += source.Demand;
+    r.Packaway += source["Non-demand"];
+    const extra = source["New lines"] + source.Markup + source.Clearance + source.LP;
     r.Digital += extra;
-    r.Online += chCartons.OMS;
+    r.Online += source.OMS;
     return r;
   };
-  const mapNew = mapCur;
 
-  const curUnits = mapCur();
-  const newUnits = mapNew();
+  const curUnits = buildUnitMap(chBaseline);
+  const newUnits = buildUnitMap(chCartons);
   const mult = (p: ProcessKey, isNew: boolean) =>
     ISSUES.reduce(
       (m, it) => m * (issues[it.id] ? 1 + (it.impact[p] || 0) * (isNew ? 1 - mitigation : 1) : 1),
@@ -186,6 +195,7 @@ function buildModel(
     cartons,
     online,
     chCartons,
+    chCurrent: chBaseline,
     curUnits,
     newUnits,
     curHours,
@@ -353,7 +363,7 @@ export default function Page() {
         </div>
         <div className="grid lg:grid-cols-2 gap-4">
           <Card className="shadow-sm"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium">Net savings composition (by process)</div><SavingsDonut deltas={deltaRows} net={model.benefit} /></CardContent></Card>
-          <Card className="shadow-sm"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium flex items-center justify-between">Process rate comparison<span className="text-xs text-slate-500">Rate / 1000 units</span></div><RateCompareChart currentCfg={currentCfg} newCfg={newCfg} /></CardContent></Card>
+          <Card className="shadow-sm"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium flex items-center justify-between">Process rate comparison<span className="text-xs text-slate-500">Rate / 1000</span></div><RateCompareChart currentCfg={currentCfg} newCfg={newCfg} /></CardContent></Card>
         </div>
 
         <Tabs defaultValue="overview">
@@ -373,8 +383,6 @@ export default function Page() {
 
             <Card className="shadow-sm"><CardContent className="p-4 space-y-6">
               <CartonFlowCompare
-                cartons={model.cartons}
-                chCartons={model.chCartons}
                 current={{
                   label: "Current model",
                   subtitle: "Baseline flow",
@@ -382,6 +390,8 @@ export default function Page() {
                   cfg: currentCfg,
                   procHours: model.curByProc,
                   nvat: nvatCur,
+                  cartons: model.cartons,
+                  flow: model.chCurrent,
                 }}
                 next={{
                   label: "New model",
@@ -391,6 +401,8 @@ export default function Page() {
                   procHours: model.newByProc,
                   nvat: nvatNew,
                   benefit: model.benefit,
+                  cartons: model.cartons,
+                  flow: model.chCartons,
                 }}
               />
 
@@ -464,7 +476,7 @@ export default function Page() {
             </CardContent></Card>
             <Card className="shadow-sm"><CardContent className="p-4 space-y-4">
               <div className="flex items-center justify-between gap-2"><div className="text-sm font-medium">Per-process parameters (New)</div><div className="text-xs text-slate-500">Shows % vs current</div></div>
-              <ProcTable cfg={newCfg} setCfg={setNewCfg} sheetHours={sheetHours} compareRates={currentCfg} workload={model.curUnits} hoursMap={model.newByProc} />
+              <ProcTable cfg={newCfg} setCfg={setNewCfg} sheetHours={sheetHours} compareRates={currentCfg} workload={model.newUnits} hoursMap={model.newByProc} />
             </CardContent></Card>
           </TabsContent>
           <TabsContent value="lean" className="space-y-6">
@@ -708,9 +720,9 @@ function SankeySimple({ cartons, chCartons, nvat, cfg, procHours }: { cartons: n
   };
 
   return (
-    <div className="w-full">
+    <div className="w-full min-w-[640px]">
       <style>{`@keyframes flow { to { stroke-dashoffset: -220px; } }`}</style>
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-[560px]" preserveAspectRatio="xMidYMid meet">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-[600px]" preserveAspectRatio="xMidYMid meet">
         {links.map((l, i) => {
           const d = path(nodes[l.from], nodes[l.to]);
           const w = scale(l.v);
@@ -780,42 +792,17 @@ type FlowPanelConfig = {
   procHours: Record<ProcessKey, number>;
   nvat: { bounce: number; lf2d: number };
   benefit?: number;
+  cartons: number;
+  flow: Record<string, number>;
 };
 
-function CartonFlowCompare({
-  cartons,
-  chCartons,
-  current,
-  next,
-}: {
-  cartons: number;
-  chCartons: Record<string, number>;
-  current: FlowPanelConfig;
-  next: FlowPanelConfig;
-}) {
-  const hoursSaved = Math.max(0, current.hours - next.hours);
-  const productivityCurrent = current.hours > 0 ? cartons / current.hours : 0;
-  const productivityNew = next.hours > 0 ? cartons / next.hours : 0;
+function CartonFlowCompare({ current, next }: { current: FlowPanelConfig; next: FlowPanelConfig }) {
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-3">
-        <SummaryChip label="Hours saved" value={`${fmt(Math.round(hoursSaved))} hrs`} />
-        <SummaryChip label="Rate improvement" value={`${fmt(((productivityNew - productivityCurrent) / (productivityCurrent || 1)) * 100, 1)}%`} muted />
-        <SummaryChip label="Productivity (new)" value={`${fmt(productivityNew, 2)} ct/hr`} muted />
-      </div>
       <div className="grid lg:grid-cols-2 gap-6">
-        <FlowPanel cartons={cartons} chCartons={chCartons} accent="current" {...current} />
-        <FlowPanel cartons={cartons} chCartons={chCartons} accent="new" {...next} />
+        <FlowPanel accent="current" {...current} />
+        <FlowPanel accent="new" {...next} />
       </div>
-    </div>
-  );
-}
-
-function SummaryChip({ label, value, muted }: { label: string; value: string; muted?: boolean }) {
-  return (
-    <div className={`px-4 py-2 rounded-xl border ${muted ? "bg-slate-50 border-slate-200" : "bg-gradient-to-r from-emerald-50 to-white border-emerald-200"}`}>
-      <div className="text-[11px] uppercase tracking-wide text-slate-500">{label}</div>
-      <div className="text-base font-semibold text-slate-900">{value}</div>
     </div>
   );
 }
@@ -828,9 +815,9 @@ function FlowPanel({
   procHours,
   nvat,
   cartons,
-  chCartons,
+  flow,
   accent,
-}: FlowPanelConfig & { cartons: number; chCartons: Record<string, number>; accent: "current" | "new" }) {
+}: FlowPanelConfig & { accent: "current" | "new" }) {
   const accentColor = accent === "current" ? "border-sky-200" : "border-emerald-200";
   const bgGradient = accent === "current" ? "from-sky-50" : "from-emerald-50";
   return (
@@ -845,7 +832,9 @@ function FlowPanel({
           <div className="text-2xl font-semibold text-slate-900">{fmt(Math.round(hours))}</div>
         </div>
       </div>
-      <SankeySimple cartons={cartons} chCartons={chCartons} nvat={nvat} cfg={cfg} procHours={procHours} />
+      <div className="rounded-xl border border-white/60 bg-white/70 backdrop-blur-sm overflow-x-auto px-2 py-4">
+        <SankeySimple cartons={cartons} chCartons={flow} nvat={nvat} cfg={cfg} procHours={procHours} />
+      </div>
     </div>
   );
 }
@@ -858,8 +847,16 @@ function RateCompareChart({ currentCfg, newCfg }: { currentCfg: Record<ProcessKe
     next: newCfg[p]?.rate ?? 0,
   }));
   const maxRate = Math.max(1, ...rows.map((r) => Math.max(r.current, r.next)));
+  const avgCurrent = rows.reduce((sum, r) => sum + (r.current || 0), 0) / (rows.length || 1);
+  const avgNext = rows.reduce((sum, r) => sum + (r.next || 0), 0) / (rows.length || 1);
+  const overallDiff = avgCurrent > 0 ? ((avgCurrent - avgNext) / avgCurrent) * 100 : 0;
+  const overallColor = overallDiff >= 0 ? "text-emerald-600" : "text-rose-600";
   return (
     <div className="space-y-3">
+      <div className="flex items-center justify-between text-xs text-slate-600">
+        <span>Average improvement</span>
+        <span className={`text-sm font-semibold ${overallColor}`}>{overallDiff >= 0 ? "+" : ""}{fmt(overallDiff, 1)}%</span>
+      </div>
       {rows.map((r) => {
         const curW = Math.max(4, (Math.max(0, r.current) / maxRate) * 100);
         const newW = Math.max(4, (Math.max(0, r.next) / maxRate) * 100);
