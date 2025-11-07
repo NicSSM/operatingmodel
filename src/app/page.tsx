@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -113,7 +113,7 @@ const fmt = (n: unknown, d = 0) => {
 const clamp = (x: number, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, x));
 
 // Totals calc
-function useTotals(
+function buildModel(
   inputs: typeof DEFAULT_INPUTS,
   split: Record<CatKey, number>,
   currentCfg: Record<ProcessKey, ProcCfg>,
@@ -241,15 +241,8 @@ export default function Page() {
   const [newCfg, setNewCfg] = useState(DEFAULT_NEW);
   const [sheetHours, setSheetHours] = useState<Record<ProcessKey, number> | null>(null);
 
-  const [flowMode, setFlowMode] = useState<"new" | "current">("new");
-  const [savedSplit, setSavedSplit] = useState<Record<CatKey, number> | null>(null);
   const [nvatNew, setNvatNew] = useState({ bounce: 0.05, lf2d: 0 });
   const [nvatCur, setNvatCur] = useState({ bounce: 0.2, lf2d: 0.15 });
-  const activeNvat = flowMode === "current" ? nvatCur : nvatNew;
-  const setActiveNvat = (k: "bounce" | "lf2d", v: number) => {
-    const next = { ...(flowMode === "current" ? nvatCur : nvatNew), [k]: clamp(v, 0, 0.6) };
-    if (flowMode === "current") setNvatCur(next); else setNvatNew(next);
-  };
 
   // Lean / VSM parameters (Value-Add %, Wait hours per week)
   const [vaCur, setVaCur] = useState<Record<ProcessKey, number>>(DEFAULT_VA);
@@ -258,44 +251,39 @@ export default function Page() {
   const [waitNew, setWaitNew] = useState<Record<ProcessKey, number>>(ZERO_WAIT);
 
   useEffect(() => {
-    if (flowMode !== "current") return;
     setNvatCur((s) => ({ ...s, bounce: issues["non_dem"] ? 0.3 : 0.2, lf2d: issues["new_lines"] ? 0.25 : 0.15 }));
-  }, [issues, flowMode]);
+  }, [issues]);
 
-  const toCurrent = () => {
-    if (flowMode !== "current") {
-      setSavedSplit(split);
-      setSplit({ "Demand %": 1, "Non-demand %": 0, "Markup %": 0, "Clearance %": 0, "New lines %": 0, "LP %": 0, "OMS %": 0 } as Record<CatKey, number>);
-    }
-    setFlowMode("current");
-    setNvatCur((s) => ({ ...s, bounce: issues["non_dem"] ? 0.3 : 0.2, lf2d: issues["new_lines"] ? 0.25 : 0.15 }));
+  const updateNvat = (mode: "current" | "new", key: "bounce" | "lf2d", value: number) => {
+    const next = clamp(value, 0, 0.6);
+    if (mode === "current") setNvatCur((s) => ({ ...s, [key]: next }));
+    else setNvatNew((s) => ({ ...s, [key]: next }));
   };
-  const toNew = () => { if (flowMode !== "new" && savedSplit) setSplit(savedSplit); setFlowMode("new"); };
 
-  const totals = useTotals(inputs, split, currentCfg, newCfg, issues, mitigation, sheetHours);
-  const chFlow = flowMode === "current"
-    ? { Demand: totals.cartons, "Non-demand": 0, Markup: 0, Clearance: 0, "New lines": 0, LP: 0, OMS: 0 }
-    : totals.chCartons;
+  const model = useMemo(
+    () => buildModel(inputs, split, currentCfg, newCfg, issues, mitigation, sheetHours),
+    [inputs, split, currentCfg, newCfg, issues, mitigation, sheetHours]
+  );
 
   const totalSplit = CAT_KEYS.reduce((a, k) => a + (split[k] || 0), 0);
   const leftFor = (k: CatKey) => clamp(1 - (totalSplit - (split[k] || 0)));
 
-  const perProc = PROCS.map((p) => ({ key: p, name: PROC_LABEL(p), current: totals.curByProc[p] || 0, next: totals.newByProc[p] || 0 }));
+  const perProc = PROCS.map((p) => ({ key: p, name: PROC_LABEL(p), current: model.curByProc[p] || 0, next: model.newByProc[p] || 0 }));
   const procRows = perProc.map(({ name, current, next }) => ({ name, current, next }));
   const deltaRows = perProc.map(({ key, name, current, next }) => ({ key, name, delta: Math.round(current - next) }));
   // Productivity: cartons per hour (per store)
-  const curProd = totals.curHours > 0 ? totals.cartons / totals.curHours : 0;
-  const newProd = totals.newHours > 0 ? totals.cartons / totals.newHours : 0;
+  const curProd = model.curHours > 0 ? model.cartons / model.curHours : 0;
+  const newProd = model.newHours > 0 ? model.cartons / model.newHours : 0;
   const prodDelta = newProd - curProd;
 
-  const pctSaved = totals.curHours ? Math.round((totals.benefit / totals.curHours) * 100) : 0;
-  const networkAnnual = Math.round(Math.round(totals.savings) * inputs.stores * 52);
+  const pctSaved = model.curHours ? Math.round((model.benefit / model.curHours) * 100) : 0;
+  const networkAnnual = Math.round(Math.round(model.savings) * inputs.stores * 52);
 
   const deriveRatesFromHours = () => {
     const derivedRates: Record<ProcessKey, number> = {} as Record<ProcessKey, number>;
     PROCS.forEach((p) => {
-      const hours = totals.curByProc[p] || 0;
-      const units = totals.curUnits[p] || 0;
+      const hours = model.curByProc[p] || 0;
+      const units = model.curUnits[p] || 0;
       const denom = units / 1000;
       const fallback = currentCfg[p].rate || 0;
       const rate = denom > 0 ? hours / denom : fallback;
@@ -358,13 +346,13 @@ export default function Page() {
         <div className="flex items-center gap-3"><Factory className="w-6 h-6 text-slate-700" /><h1 className="text-xl font-semibold">Kmart Store Operating Model</h1></div>
 
         <div className="grid md:grid-cols-4 gap-4">
-          <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-sky-600 via-sky-500 to-sky-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Total Current Hours</div><div className="text-3xl font-semibold">{fmt(Math.round(totals.curHours))}</div><div className="opacity-90 text-xs mt-1">Productivity: {fmt(curProd, 2)} ct/hr</div></CardContent></Card>
-          <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-emerald-600 via-emerald-500 to-emerald-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Total New Model Hours</div><div className="text-3xl font-semibold">{fmt(Math.round(totals.newHours))}</div><div className="opacity-90 text-xs mt-1">Productivity: {fmt(newProd, 2)} ct/hr</div></CardContent></Card>
-          <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-violet-600 via-violet-500 to-violet-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Estimated Benefit (per store)</div><div className="text-3xl font-semibold">{fmt(Math.round(totals.benefit))} hrs</div><div className="opacity-90">≈ A${fmt(Math.round(totals.savings))}/week</div><div className="opacity-90 text-xs mt-1">Prod Δ: {prodDelta >= 0 ? '+' : ''}{fmt(prodDelta, 2)} ct/hr</div></CardContent></Card>
-          <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-rose-600 via-rose-500 to-rose-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">{`Network Benefit (${inputs.stores} stores)`}</div><div className="text-3xl font-semibold">{fmt(Math.round(totals.benefit * inputs.stores))} hrs</div><div className="opacity-90">≈ A${fmt(Math.round(totals.savings * inputs.stores))}/week</div><div className="opacity-90 text-xs mt-1">Prod Δ: {prodDelta >= 0 ? '+' : ''}{fmt(prodDelta, 2)} ct/hr</div></CardContent></Card>
+          <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-sky-600 via-sky-500 to-sky-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Total Current Hours</div><div className="text-3xl font-semibold">{fmt(Math.round(model.curHours))}</div><div className="opacity-90 text-xs mt-1">Productivity: {fmt(curProd, 2)} ct/hr</div></CardContent></Card>
+          <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-emerald-600 via-emerald-500 to-emerald-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Total New Model Hours</div><div className="text-3xl font-semibold">{fmt(Math.round(model.newHours))}</div><div className="opacity-90 text-xs mt-1">Productivity: {fmt(newProd, 2)} ct/hr</div></CardContent></Card>
+          <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-violet-600 via-violet-500 to-violet-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Estimated Benefit (per store)</div><div className="text-3xl font-semibold">{fmt(Math.round(model.benefit))} hrs</div><div className="opacity-90">≈ A${fmt(Math.round(model.savings))}/week</div><div className="opacity-90 text-xs mt-1">Prod Δ: {prodDelta >= 0 ? '+' : ''}{fmt(prodDelta, 2)} ct/hr</div></CardContent></Card>
+          <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-rose-600 via-rose-500 to-rose-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">{`Network Benefit (${inputs.stores} stores)`}</div><div className="text-3xl font-semibold">{fmt(Math.round(model.benefit * inputs.stores))} hrs</div><div className="opacity-90">≈ A${fmt(Math.round(model.savings * inputs.stores))}/week</div><div className="opacity-90 text-xs mt-1">Prod Δ: {prodDelta >= 0 ? '+' : ''}{fmt(prodDelta, 2)} ct/hr</div></CardContent></Card>
         </div>
         <div className="grid lg:grid-cols-2 gap-4">
-          <Card className="shadow-sm"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium">Net savings composition (by process)</div><SavingsDonut deltas={deltaRows} net={totals.benefit} /></CardContent></Card>
+          <Card className="shadow-sm"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium">Net savings composition (by process)</div><SavingsDonut deltas={deltaRows} net={model.benefit} /></CardContent></Card>
           <Card className="shadow-sm"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium flex items-center justify-between">Process rate comparison<span className="text-xs text-slate-500">Rate / 1000 units</span></div><RateCompareChart currentCfg={currentCfg} newCfg={newCfg} /></CardContent></Card>
         </div>
 
@@ -384,45 +372,50 @@ export default function Page() {
             </div></CardContent></Card>
 
             <Card className="shadow-sm"><CardContent className="p-4 space-y-6">
-              <div>
-                <div className="flex items-center justify-between mb-2"><div className="text-sm font-medium">Carton flow</div>
-                  <div className="rounded-lg bg-slate-100 p-0.5">
-                    <Button size="sm" variant={flowMode === "new" ? "default" : "ghost"} className="h-7 px-2" onClick={toNew}>New</Button>
-                    <Button size="sm" variant={flowMode === "current" ? "default" : "ghost"} className="h-7 px-2" onClick={toCurrent}>Current</Button>
-                  </div>
-                </div>
-                <SankeySimple
-                  cartons={totals.cartons}
-                  chCartons={chFlow}
-                  flowMode={flowMode}
-                  nvat={activeNvat}
-                  cfg={flowMode === "current" ? currentCfg : newCfg}
-                  procHours={flowMode === "current" ? totals.curByProc : totals.newByProc}
-                />
-              </div>
+              <CartonFlowCompare
+                cartons={model.cartons}
+                chCartons={model.chCartons}
+                current={{
+                  label: "Current model",
+                  subtitle: "Baseline flow",
+                  hours: model.curHours,
+                  cfg: currentCfg,
+                  procHours: model.curByProc,
+                  nvat: nvatCur,
+                }}
+                next={{
+                  label: "New model",
+                  subtitle: "Target flow",
+                  hours: model.newHours,
+                  cfg: newCfg,
+                  procHours: model.newByProc,
+                  nvat: nvatNew,
+                  benefit: model.benefit,
+                }}
+              />
 
-              {/* Collapsible category controls */}
               <CategoryControls
                 title="Category controls"
                 remainingPct={Math.max(0, 100 - Math.round(totalSplit * 100))}
                 split={split}
                 setSplit={setSplit}
                 leftFor={leftFor}
-                activeNvat={activeNvat}
-                setActiveNvat={setActiveNvat}
+                nvatCur={nvatCur}
+                nvatNew={nvatNew}
+                onNvatChange={updateNvat}
               />
             </CardContent></Card>
 
             {/* Grouped: Annualised benefit + Waterfall */}
             <div className="grid lg:grid-cols-2 gap-4">
-              <Card className="shadow-sm"><CardContent className="p-4"><div className="text-sm font-medium mb-1">Annualised network benefit</div><div className="text-3xl font-semibold">A${fmt(networkAnnual)}</div><div className="text-sm text-slate-600 mt-1">Weekly: A${fmt(Math.round(totals.savings * inputs.stores))} · Saved: {pctSaved}% of current hours</div>
+              <Card className="shadow-sm"><CardContent className="p-4"><div className="text-sm font-medium mb-1">Annualised network benefit</div><div className="text-3xl font-semibold">A${fmt(networkAnnual)}</div><div className="text-sm text-slate-600 mt-1">Weekly: A${fmt(Math.round(model.savings * inputs.stores))} · Saved: {pctSaved}% of current hours</div>
                 <div className="mt-3"><div className="text-xs text-slate-600 mb-1">Confidence levels</div>
                   <div className="grid grid-cols-3 gap-2 text-sm">{[{ label: "Conservative", m: 0.8 }, { label: "Expected", m: 1.0 }, { label: "Stretch", m: 1.2 }].map((b) => (
                     <div key={b.label} className="border rounded-lg p-2"><div className="text-[11px] text-slate-500">{b.label}</div><div className="font-medium">A${fmt(Math.round(networkAnnual * b.m))}/yr</div></div>
                   ))}</div>
                 </div>
               </CardContent></Card>
-              <Card className="shadow-sm"><CardContent className="p-4"><div className="text-sm font-medium mb-2">Benefit waterfall: Current → processes → New</div><WaterfallBenefit rows={procRows} cur={totals.curHours} next={totals.newHours} /></CardContent></Card>
+              <Card className="shadow-sm"><CardContent className="p-4"><div className="text-sm font-medium mb-2">Benefit waterfall: Current → processes → New</div><WaterfallBenefit rows={procRows} cur={model.curHours} next={model.newHours} /></CardContent></Card>
             </div>
 
             {/* Waterfall moved up into grouped section */}
@@ -467,11 +460,11 @@ export default function Page() {
             </CardContent></Card>
             <Card className="shadow-sm"><CardContent className="p-4 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-sm font-medium">Per-process parameters (Current)</div><Button size="sm" variant="outline" onClick={deriveRatesFromHours}>Auto-calc rates</Button></div>
-              <ProcTable cfg={currentCfg} setCfg={setCurrentCfg} sheetHours={sheetHours} workload={totals.curUnits} hoursMap={totals.curByProc} />
+              <ProcTable cfg={currentCfg} setCfg={setCurrentCfg} sheetHours={sheetHours} workload={model.curUnits} hoursMap={model.curByProc} />
             </CardContent></Card>
             <Card className="shadow-sm"><CardContent className="p-4 space-y-4">
               <div className="flex items-center justify-between gap-2"><div className="text-sm font-medium">Per-process parameters (New)</div><div className="text-xs text-slate-500">Shows % vs current</div></div>
-              <ProcTable cfg={newCfg} setCfg={setNewCfg} sheetHours={sheetHours} compareRates={currentCfg} workload={totals.curUnits} hoursMap={totals.newByProc} />
+              <ProcTable cfg={newCfg} setCfg={setNewCfg} sheetHours={sheetHours} compareRates={currentCfg} workload={model.curUnits} hoursMap={model.newByProc} />
             </CardContent></Card>
           </TabsContent>
           <TabsContent value="lean" className="space-y-6">
@@ -492,10 +485,10 @@ export default function Page() {
             <Card className="shadow-sm"><CardContent className="p-4 space-y-4">
               <div className="text-sm font-medium">Value Stream Map</div>
               <LeanVSM
-                curHours={totals.curByProc}
-                newHours={totals.newByProc}
-                curUnits={totals.curUnits}
-                newUnits={totals.newUnits}
+                curHours={model.curByProc}
+                newHours={model.newByProc}
+                curUnits={model.curUnits}
+                newUnits={model.newUnits}
                 vaCur={vaCur}
                 vaNew={vaNew}
                 waitCur={waitCur}
@@ -507,7 +500,7 @@ export default function Page() {
 
             <Card className="shadow-sm"><CardContent className="p-4">
               <div className="text-sm font-medium mb-2">Lean insights</div>
-              <LeanInsights curHours={totals.curByProc} newHours={totals.newByProc} vaCur={vaCur} waitCur={waitCur}
+              <LeanInsights curHours={model.curByProc} newHours={model.newByProc} vaCur={vaCur} waitCur={waitCur}
                 onApplyRate={(p, pct) => setNewCfg((s) => ({ ...s, [p]: { ...s[p], rate: Math.max(0, s[p].rate * (1 - pct)) } }))}
                 onReduceWait={(p, pct) => setWaitNew((w) => ({ ...w, [p]: Math.max(0, w[p] * (1 - pct)) }))}
               />
@@ -657,7 +650,7 @@ function WaterfallBenefit({ rows, cur, next }: { rows: { name: string; current: 
   );
 }
 
-function SankeySimple({ cartons, chCartons, nvat, cfg, flowMode: _flowMode, procHours }: { cartons: number; chCartons: Record<string, number>; flowMode: "new" | "current"; nvat: { bounce: number; lf2d: number }; cfg: Record<ProcessKey, ProcCfg>; procHours: Record<ProcessKey, number> }) {
+function SankeySimple({ cartons, chCartons, nvat, cfg, procHours }: { cartons: number; chCartons: Record<string, number>; nvat: { bounce: number; lf2d: number }; cfg: Record<ProcessKey, ProcCfg>; procHours: Record<ProcessKey, number> }) {
   const W = 1600, H = 560;
   const stageX = [Math.round(W * 0.05), Math.round(W * 0.3), Math.round(W * 0.58), Math.round(W * 0.88)];
   const scale = (v: number) => Math.max(2, Math.sqrt(v) * 0.25);
@@ -779,6 +772,84 @@ function SankeySimple({ cartons, chCartons, nvat, cfg, flowMode: _flowMode, proc
   );
 }
 
+type FlowPanelConfig = {
+  label: string;
+  subtitle: string;
+  hours: number;
+  cfg: Record<ProcessKey, ProcCfg>;
+  procHours: Record<ProcessKey, number>;
+  nvat: { bounce: number; lf2d: number };
+  benefit?: number;
+};
+
+function CartonFlowCompare({
+  cartons,
+  chCartons,
+  current,
+  next,
+}: {
+  cartons: number;
+  chCartons: Record<string, number>;
+  current: FlowPanelConfig;
+  next: FlowPanelConfig;
+}) {
+  const hoursSaved = Math.max(0, current.hours - next.hours);
+  const productivityCurrent = current.hours > 0 ? cartons / current.hours : 0;
+  const productivityNew = next.hours > 0 ? cartons / next.hours : 0;
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-3">
+        <SummaryChip label="Hours saved" value={`${fmt(Math.round(hoursSaved))} hrs`} />
+        <SummaryChip label="Rate improvement" value={`${fmt(((productivityNew - productivityCurrent) / (productivityCurrent || 1)) * 100, 1)}%`} muted />
+        <SummaryChip label="Productivity (new)" value={`${fmt(productivityNew, 2)} ct/hr`} muted />
+      </div>
+      <div className="grid lg:grid-cols-2 gap-6">
+        <FlowPanel cartons={cartons} chCartons={chCartons} accent="current" {...current} />
+        <FlowPanel cartons={cartons} chCartons={chCartons} accent="new" {...next} />
+      </div>
+    </div>
+  );
+}
+
+function SummaryChip({ label, value, muted }: { label: string; value: string; muted?: boolean }) {
+  return (
+    <div className={`px-4 py-2 rounded-xl border ${muted ? "bg-slate-50 border-slate-200" : "bg-gradient-to-r from-emerald-50 to-white border-emerald-200"}`}>
+      <div className="text-[11px] uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="text-base font-semibold text-slate-900">{value}</div>
+    </div>
+  );
+}
+
+function FlowPanel({
+  label,
+  subtitle,
+  hours,
+  cfg,
+  procHours,
+  nvat,
+  cartons,
+  chCartons,
+  accent,
+}: FlowPanelConfig & { cartons: number; chCartons: Record<string, number>; accent: "current" | "new" }) {
+  const accentColor = accent === "current" ? "border-sky-200" : "border-emerald-200";
+  const bgGradient = accent === "current" ? "from-sky-50" : "from-emerald-50";
+  return (
+    <div className={`space-y-3 rounded-2xl border ${accentColor} bg-gradient-to-br ${bgGradient} to-white p-4 shadow-sm`}>
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="text-xs uppercase tracking-wide text-slate-500">{subtitle}</div>
+          <div className="text-base font-semibold text-slate-900">{label}</div>
+        </div>
+        <div className="text-right">
+          <div className="text-xs text-slate-500">Weekly hours</div>
+          <div className="text-2xl font-semibold text-slate-900">{fmt(Math.round(hours))}</div>
+        </div>
+      </div>
+      <SankeySimple cartons={cartons} chCartons={chCartons} nvat={nvat} cfg={cfg} procHours={procHours} />
+    </div>
+  );
+}
+
 function RateCompareChart({ currentCfg, newCfg }: { currentCfg: Record<ProcessKey, ProcCfg>; newCfg: Record<ProcessKey, ProcCfg> }) {
   const rows = PROCS.filter((p) => p !== "Backfill").map((p) => ({
     key: p,
@@ -823,14 +894,24 @@ function RateCompareChart({ currentCfg, newCfg }: { currentCfg: Record<ProcessKe
   );
 }
 
-function CategoryControls({ title, remainingPct, split, setSplit, leftFor, activeNvat, setActiveNvat }: {
+function CategoryControls({
+  title,
+  remainingPct,
+  split,
+  setSplit,
+  leftFor,
+  nvatCur,
+  nvatNew,
+  onNvatChange,
+}: {
   title: string;
   remainingPct: number;
   split: Record<CatKey, number>;
   setSplit: React.Dispatch<React.SetStateAction<Record<CatKey, number>>>;
   leftFor: (k: CatKey) => number;
-  activeNvat: { bounce: number; lf2d: number };
-  setActiveNvat: (k: "bounce" | "lf2d", v: number) => void;
+  nvatCur: { bounce: number; lf2d: number };
+  nvatNew: { bounce: number; lf2d: number };
+  onNvatChange: (mode: "current" | "new", key: "bounce" | "lf2d", value: number) => void;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -839,26 +920,40 @@ function CategoryControls({ title, remainingPct, split, setSplit, leftFor, activ
         <div className="text-sm font-medium">{title}</div>
         <div className="flex items-center gap-2">
           <div className="text-xs text-slate-600">Remaining: {Math.max(0, remainingPct)}%</div>
-          <Button variant="outline" className="h-7 px-2" onClick={() => setOpen((v) => !v)}>{open ? 'Hide' : 'Show'}</Button>
+          <Button variant="outline" className="h-7 px-2" onClick={() => setOpen((v) => !v)}>{open ? "Hide" : "Show"}</Button>
         </div>
       </div>
       {open && (
         <>
           <div className="h-2 rounded bg-slate-200 overflow-hidden flex">
-            {CAT_KEYS.map((k) => { const w = Math.round((split[k] || 0) * 100); const base = k.replace(" %", " "); const c = NODE_COLORS[base.trim()] || "#cbd5e1"; return <div key={k} style={{ width: w + "%", backgroundColor: c }} />; })}
+            {CAT_KEYS.map((k) => {
+              const w = Math.round((split[k] || 0) * 100);
+              const base = k.replace(" %", " ");
+              const c = NODE_COLORS[base.trim()] || "#cbd5e1";
+              return <div key={k} style={{ width: `${w}%`, backgroundColor: c }} />;
+            })}
           </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {CAT_KEYS.map((k) => { const left = leftFor(k); return (
-              <PercentSlider key={k} label={k} value={split[k]} maxLeft={left} onChange={(v) => setSplit((s) => ({ ...s, [k]: clamp(v, 0, left) }))} />
-            ); })}
+            {CAT_KEYS.map((k) => {
+              const left = leftFor(k);
+              return (
+                <PercentSlider key={k} label={k} value={split[k]} maxLeft={left} onChange={(v) => setSplit((s) => ({ ...s, [k]: clamp(v, 0, left) }))} />
+              );
+            })}
           </div>
           <div className="grid sm:grid-cols-2 gap-3 mt-2">
-            <div className="space-y-2 p-2 rounded-lg border bg-white"><div className="flex items-center justify-between"><div className="text-sm">NVAT — Bounce‑back from Loadfill</div><div className="text-xs text-slate-500">{Math.round((activeNvat.bounce || 0) * 100)}%</div></div>
-              <Slider value={[Math.round((activeNvat.bounce || 0) * 100)]} min={0} max={40} step={1} onValueChange={(v) => setActiveNvat("bounce", (v[0] || 0) / 100)} />
-            </div>
-            <div className="space-y-2 p-2 rounded-lg border bg-white"><div className="flex items-center justify-between"><div className="text-sm">NVAT — Loadfill → Digital Shopkeeping</div><div className="text-xs text-slate-500">{Math.round((activeNvat.lf2d || 0) * 100)}%</div></div>
-              <Slider value={[Math.round((activeNvat.lf2d || 0) * 100)]} min={0} max={40} step={1} onValueChange={(v) => setActiveNvat("lf2d", (v[0] || 0) / 100)} />
-            </div>
+            {[
+              { mode: "current" as const, title: "Current NVAT controls", data: nvatCur, accent: "text-sky-600" },
+              { mode: "new" as const, title: "New NVAT controls", data: nvatNew, accent: "text-emerald-600" },
+            ].map((item) => (
+              <div key={item.mode} className="space-y-2 p-3 rounded-lg border bg-white shadow-sm">
+                <div className={`text-sm font-medium ${item.accent}`}>{item.title}</div>
+                <div className="flex items-center justify-between text-xs text-slate-500"><span>Bounce-back from Loadfill</span><span>{Math.round((item.data.bounce || 0) * 100)}%</span></div>
+                <Slider value={[Math.round((item.data.bounce || 0) * 100)]} min={0} max={40} step={1} onValueChange={(v) => onNvatChange(item.mode, "bounce", (v[0] || 0) / 100)} />
+                <div className="flex items-center justify-between text-xs text-slate-500"><span>Loadfill → Digital Shopkeeping</span><span>{Math.round((item.data.lf2d || 0) * 100)}%</span></div>
+                <Slider value={[Math.round((item.data.lf2d || 0) * 100)]} min={0} max={40} step={1} onValueChange={(v) => onNvatChange(item.mode, "lf2d", (v[0] || 0) / 100)} />
+              </div>
+            ))}
           </div>
         </>
       )}
@@ -958,7 +1053,7 @@ function LeanVSM({ curHours, newHours, curUnits, newUnits, vaCur, vaNew, waitCur
     });
     return { vaT, nvaT, waitT, lead: vaT + nvaT + waitT };
   });
-  const maxLead = Math.max(1, ...totals.map((t) => t.lead));
+  const maxLead = Math.max(1, ...model.map((t) => t.lead));
   const avail = W - pad * 2 - (PROCS.length - 1) * gap; // leave space for inter-process gaps
   const scaleX = (hrs: number) => (hrs / maxLead) * Math.max(100, avail);
   const H = pad * 2 + rowGap * rows.length + 40; // dynamic height
@@ -1052,6 +1147,7 @@ function LeanInsights({ curHours, newHours, vaCur, waitCur, onApplyRate, onReduc
     </div>
   );
 }
+
 
 
 
