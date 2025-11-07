@@ -355,11 +355,33 @@ export default function Page() {
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="flex items-center gap-3"><Factory className="w-6 h-6 text-slate-700" /><h1 className="text-xl font-semibold">Kmart Store Operating Model</h1></div>
 
-        <div className="grid md:grid-cols-4 gap-4">
-          <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-sky-600 via-sky-500 to-sky-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Total Current Hours</div><div className="text-3xl font-semibold">{fmt(Math.round(model.curHours))}</div><div className="opacity-90 text-xs mt-1">Productivity: {fmt(curProd, 2)} ct/hr</div></CardContent></Card>
-          <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-emerald-600 via-emerald-500 to-emerald-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Total New Model Hours</div><div className="text-3xl font-semibold">{fmt(Math.round(model.newHours))}</div><div className="opacity-90 text-xs mt-1">Productivity: {fmt(newProd, 2)} ct/hr</div></CardContent></Card>
-          <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-violet-600 via-violet-500 to-violet-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Estimated Benefit (per store)</div><div className="text-3xl font-semibold">{fmt(Math.round(model.benefit))} hrs</div><div className="opacity-90">≈ A${fmt(Math.round(model.savings))}/week</div><div className="opacity-90 text-xs mt-1">Prod Δ: {prodDelta >= 0 ? '+' : ''}{fmt(prodDelta, 2)} ct/hr</div></CardContent></Card>
-          <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-rose-600 via-rose-500 to-rose-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">{`Network Benefit (${inputs.stores} stores)`}</div><div className="text-3xl font-semibold">{fmt(Math.round(model.benefit * inputs.stores))} hrs</div><div className="opacity-90">≈ A${fmt(Math.round(model.savings * inputs.stores))}/week</div><div className="opacity-90 text-xs mt-1">Prod Δ: {prodDelta >= 0 ? '+' : ''}{fmt(prodDelta, 2)} ct/hr</div></CardContent></Card>
+        <div className="grid lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)] gap-4">
+          <Card className="shadow-sm border-slate-200">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <div className="text-xs uppercase tracking-wide text-slate-500">Story so far</div>
+                  <div className="text-lg font-semibold text-slate-900">Where the new model is winning</div>
+                </div>
+                <div className="text-xs text-slate-500 hidden sm:block">Per store, weekly</div>
+              </div>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <HeroStat label="Total current hours" value={fmt(Math.round(model.curHours))} helper={`${fmt(curProd, 2)} ct/hr`} color="from-sky-600 via-sky-500 to-sky-400" />
+                <HeroStat label="Total new hours" value={fmt(Math.round(model.newHours))} helper={`${fmt(newProd, 2)} ct/hr`} color="from-emerald-600 via-emerald-500 to-emerald-400" />
+                <HeroStat label="Benefit (per store)" value={`${fmt(Math.round(model.benefit))} hrs`} helper={`≈ A${fmt(Math.round(model.savings))}/wk`} color="from-violet-600 via-violet-500 to-violet-400" />
+                <HeroStat label={`Network (${inputs.stores} stores)`} value={`${fmt(Math.round(model.benefit * inputs.stores))} hrs`} helper={`≈ A${fmt(Math.round(model.savings * inputs.stores))}/wk`} color="from-rose-600 via-rose-500 to-rose-400" />
+              </div>
+            </CardContent>
+          </Card>
+          <DriverImpactCard
+            cartons={inputs.cartonsDelivered}
+            topCategory={Object.entries(split).sort((a, b) => (b[1] || 0) - (a[1] || 0))[0]}
+            mitigation={mitigation}
+            nvatCur={nvatCur}
+            nvatNew={nvatNew}
+            productivityDelta={prodDelta}
+            savings={model.savings}
+          />
         </div>
         <div className="grid lg:grid-cols-2 gap-4">
           <Card className="shadow-sm"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium">Net savings composition (by process)</div><SavingsDonut deltas={deltaRows} net={model.benefit} /></CardContent></Card>
@@ -374,12 +396,33 @@ export default function Page() {
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
-            <Card className="shadow-sm"><CardContent className="p-4"><div className="text-sm font-medium mb-3">Model inputs</div><div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              <NumInput label="Cartons delivered (weekly)" val={inputs.cartonsDelivered} set={(n) => setInputs((s) => ({ ...s, cartonsDelivered: Math.max(0, n) }))} />
-              <NumInput label="Online units (weekly)" val={inputs.onlineUnits} set={(n) => setInputs((s) => ({ ...s, onlineUnits: Math.max(0, n) }))} />
-              <NumInput label="Average hourly rate (AHR)" val={inputs.hourlyRate} step={0.5} set={(n) => setInputs((s) => ({ ...s, hourlyRate: Math.max(0, n) }))} />
-              <NumInput label="Stores (network)" val={inputs.stores} set={(n) => setInputs((s) => ({ ...s, stores: Math.max(1, n) }))} />
-            </div></CardContent></Card>
+            <Card className="shadow-sm"><CardContent className="p-4 space-y-5">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-medium">Driver controls</div>
+                <div className="text-xs text-slate-500">Adjust inputs & mix to see instant impact</div>
+              </div>
+              <div className="grid xl:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                  <div className="text-xs uppercase tracking-wide text-slate-500">Volume & cost</div>
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    <NumInput label="Cartons delivered (weekly)" val={inputs.cartonsDelivered} set={(n) => setInputs((s) => ({ ...s, cartonsDelivered: Math.max(0, n) }))} />
+                    <NumInput label="Online units (weekly)" val={inputs.onlineUnits} set={(n) => setInputs((s) => ({ ...s, onlineUnits: Math.max(0, n) }))} />
+                    <NumInput label="Average hourly rate (AHR)" val={inputs.hourlyRate} step={0.5} set={(n) => setInputs((s) => ({ ...s, hourlyRate: Math.max(0, n) }))} />
+                    <NumInput label="Stores (network)" val={inputs.stores} set={(n) => setInputs((s) => ({ ...s, stores: Math.max(1, n) }))} />
+                  </div>
+                </div>
+                <CategoryControls
+                  title="Mix & NVAT levers"
+                  remainingPct={Math.max(0, 100 - Math.round(totalSplit * 100))}
+                  split={split}
+                  setSplit={setSplit}
+                  leftFor={leftFor}
+                  nvatCur={nvatCur}
+                  nvatNew={nvatNew}
+                  onNvatChange={updateNvat}
+                />
+              </div>
+            </CardContent></Card>
 
             <Card className="shadow-sm"><CardContent className="p-4 space-y-6">
               <CartonFlowCompare
@@ -404,17 +447,6 @@ export default function Page() {
                   cartons: model.cartons,
                   flow: model.chCartons,
                 }}
-              />
-
-              <CategoryControls
-                title="Category controls"
-                remainingPct={Math.max(0, 100 - Math.round(totalSplit * 100))}
-                split={split}
-                setSplit={setSplit}
-                leftFor={leftFor}
-                nvatCur={nvatCur}
-                nvatNew={nvatNew}
-                onNvatChange={updateNvat}
               />
             </CardContent></Card>
 
@@ -470,14 +502,16 @@ export default function Page() {
                 <div className="space-y-1"><Label className="text-xs">Status</Label><div className="text-sm text-slate-700">{sheetHours ? `${Object.keys(sheetHours).length} processes loaded: ${Object.keys(sheetHours).join(", ")}` : "No file loaded"}</div></div>
               </div>
             </CardContent></Card>
-            <Card className="shadow-sm"><CardContent className="p-4 space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-sm font-medium">Per-process parameters (Current)</div><Button size="sm" variant="outline" onClick={deriveRatesFromHours}>Auto-calc rates</Button></div>
-              <ProcTable cfg={currentCfg} setCfg={setCurrentCfg} sheetHours={sheetHours} workload={model.curUnits} hoursMap={model.curByProc} />
-            </CardContent></Card>
-            <Card className="shadow-sm"><CardContent className="p-4 space-y-4">
-              <div className="flex items-center justify-between gap-2"><div className="text-sm font-medium">Per-process parameters (New)</div><div className="text-xs text-slate-500">Shows % vs current</div></div>
-              <ProcTable cfg={newCfg} setCfg={setNewCfg} sheetHours={sheetHours} compareRates={currentCfg} workload={model.newUnits} hoursMap={model.newByProc} />
-            </CardContent></Card>
+            <div className="grid lg:grid-cols-2 gap-4">
+              <Card className="shadow-sm"><CardContent className="p-4 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-sm font-medium">Per-process parameters (Current)</div><Button size="sm" variant="outline" onClick={deriveRatesFromHours}>Auto-calc rates</Button></div>
+                <ProcTable cfg={currentCfg} setCfg={setCurrentCfg} sheetHours={sheetHours} workload={model.curUnits} hoursMap={model.curByProc} />
+              </CardContent></Card>
+              <Card className="shadow-sm"><CardContent className="p-4 space-y-4">
+                <div className="flex items-center justify-between gap-2"><div className="text-sm font-medium">Per-process parameters (New)</div><div className="text-xs text-slate-500">Shows % vs current</div></div>
+                <ProcTable cfg={newCfg} setCfg={setNewCfg} sheetHours={sheetHours} compareRates={currentCfg} workload={model.newUnits} hoursMap={model.newByProc} />
+              </CardContent></Card>
+            </div>
           </TabsContent>
           <TabsContent value="lean" className="space-y-6">
             <Card className="shadow-sm"><CardContent className="p-4 space-y-3">
@@ -797,11 +831,27 @@ type FlowPanelConfig = {
 };
 
 function CartonFlowCompare({ current, next }: { current: FlowPanelConfig; next: FlowPanelConfig }) {
+  const [zoom, setZoom] = useState(1);
+  const zoomPct = Math.round(zoom * 100);
   return (
     <div className="space-y-4">
-      <div className="grid lg:grid-cols-2 gap-6">
-        <FlowPanel accent="current" {...current} />
-        <FlowPanel accent="new" {...next} />
+      <div className="flex items-center justify-end gap-3 text-xs text-slate-600">
+        <span className="hidden sm:inline">Zoom Carton Flow</span>
+        <Slider
+          className="w-48"
+          value={[zoomPct]}
+          min={75}
+          max={160}
+          step={5}
+          onValueChange={(val) => setZoom(Math.max(0.5, (val[0] || 100) / 100))}
+        />
+        <span className="font-semibold text-slate-700">{zoomPct}%</span>
+      </div>
+      <div className="relative left-1/2 right-1/2 w-screen max-w-none -translate-x-1/2 px-2 sm:px-6 lg:px-12">
+        <div className="flex flex-col gap-10">
+          <FlowPanel accent="current" zoom={zoom} {...current} />
+          <FlowPanel accent="new" zoom={zoom} {...next} />
+        </div>
       </div>
     </div>
   );
@@ -817,7 +867,8 @@ function FlowPanel({
   cartons,
   flow,
   accent,
-}: FlowPanelConfig & { accent: "current" | "new" }) {
+  zoom,
+}: FlowPanelConfig & { accent: "current" | "new"; zoom: number }) {
   const accentColor = accent === "current" ? "border-sky-200" : "border-emerald-200";
   const bgGradient = accent === "current" ? "from-sky-50" : "from-emerald-50";
   return (
@@ -832,8 +883,13 @@ function FlowPanel({
           <div className="text-2xl font-semibold text-slate-900">{fmt(Math.round(hours))}</div>
         </div>
       </div>
-      <div className="rounded-xl border border-white/60 bg-white/70 backdrop-blur-sm overflow-x-auto px-2 py-4">
-        <SankeySimple cartons={cartons} chCartons={flow} nvat={nvat} cfg={cfg} procHours={procHours} />
+      <div className="rounded-2xl border border-white/60 bg-white/80 backdrop-blur-sm overflow-x-auto px-3 py-6">
+        <div
+          className="min-w-[720px]"
+          style={{ transform: `scale(${zoom})`, transformOrigin: "top center" }}
+        >
+          <SankeySimple cartons={cartons} chCartons={flow} nvat={nvat} cfg={cfg} procHours={procHours} />
+        </div>
       </div>
     </div>
   );
@@ -891,6 +947,71 @@ function RateCompareChart({ currentCfg, newCfg }: { currentCfg: Record<ProcessKe
   );
 }
 
+function DriverImpactCard({
+  cartons,
+  topCategory,
+  mitigation,
+  nvatCur,
+  nvatNew,
+  productivityDelta,
+  savings,
+}: {
+  cartons: number;
+  topCategory?: [string, number];
+  mitigation: number;
+  nvatCur: { bounce: number; lf2d: number };
+  nvatNew: { bounce: number; lf2d: number };
+  productivityDelta: number;
+  savings: number;
+}) {
+  const drivers = [
+    {
+      title: "Volume lever",
+      value: `${fmt(Math.round(cartons))} ct/wk`,
+      detail: "Cartons delivered drive labour demand; adjust to test load sensitivity.",
+    },
+    {
+      title: "Mix lever",
+      value: topCategory ? `${topCategory[0]} ${(topCategory[1] * 100).toFixed(0)}%` : "Balanced",
+      detail: "Category split shifts workload between Loadfill, Packaway, and Digital.",
+    },
+    {
+      title: "NVAT leakage",
+      value: `Current ${Math.round((nvatCur.bounce || 0) * 100)}% → New ${Math.round((nvatNew.bounce || 0) * 100)}%`,
+      detail: "Tighten bounce-back & LF→Digital rework to release more hours.",
+    },
+    {
+      title: "Mitigation confidence",
+      value: `${Math.round(mitigation * 100)}%`,
+      detail: "Apply mitigation to issue scenarios to see best/worst case views.",
+    },
+  ];
+  return (
+    <Card className="shadow-sm border-slate-200">
+      <CardContent className="p-4 space-y-4">
+        <div>
+          <div className="text-xs uppercase tracking-wide text-slate-500">Driver impact</div>
+          <div className="text-sm text-slate-900 font-semibold">How adjustments translate to savings</div>
+        </div>
+        <div className="space-y-3">
+          {drivers.map((d) => (
+            <div key={d.title} className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2">
+              <div className="flex items-center justify-between text-xs text-slate-600">
+                <span className="font-medium text-slate-700">{d.title}</span>
+                <span className="text-slate-900 font-semibold">{d.value}</span>
+              </div>
+              <div className="text-[11px] text-slate-500 mt-1">{d.detail}</div>
+            </div>
+          ))}
+        </div>
+        <div className="text-xs text-slate-500 border-t pt-3">
+          Productivity gain: <span className={productivityDelta >= 0 ? "text-emerald-600 font-semibold" : "text-rose-600 font-semibold"}>{productivityDelta >= 0 ? "+" : ""}{fmt(productivityDelta, 2)} ct/hr</span> · Weekly savings: <span className="font-semibold text-slate-900">A${fmt(Math.round(savings))}</span>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function CategoryControls({
   title,
   remainingPct,
@@ -910,7 +1031,7 @@ function CategoryControls({
   nvatNew: { bounce: number; lf2d: number };
   onNvatChange: (mode: "current" | "new", key: "bounce" | "lf2d", value: number) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -1148,3 +1269,12 @@ function LeanInsights({ curHours, newHours, vaCur, waitCur, onApplyRate, onReduc
 
 
 
+function HeroStat({ label, value, helper, color }: { label: string; value: string; helper: string; color: string }) {
+  return (
+    <div className={`rounded-2xl text-white p-3 bg-gradient-to-br ${color}`}>
+      <div className="text-[11px] uppercase tracking-wide opacity-80">{label}</div>
+      <div className="text-2xl font-semibold leading-tight">{value}</div>
+      <div className="text-xs opacity-90 mt-1">{helper}</div>
+    </div>
+  );
+}
