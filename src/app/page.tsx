@@ -157,20 +157,24 @@ function useTotals(
 
   const calcByProc = (
     cfg: Record<ProcessKey, ProcCfg>,
-    units: Record<ProcessKey, number>
+    units: Record<ProcessKey, number>,
+    allowSheetHours = true
   ): Record<ProcessKey, number> =>
     PROCS.reduce((o, p) => {
       const calc = cfg[p].useRoster
         ? cfg[p].roster
         : (cfg[p].rate * (cfg[p].unit === "online" ? online : units[p])) / 1000;
-      const base = !cfg[p].useRoster && sheetHours && sheetHours[p] != null ? Number(sheetHours[p]) : calc;
+      const base =
+        !cfg[p].useRoster && allowSheetHours && sheetHours && sheetHours[p] != null
+          ? Number(sheetHours[p])
+          : calc;
       o[p] = base;
       return o;
     }, {} as Record<ProcessKey, number>);
 
-  const curByProc = calcByProc(currentCfg, curUnits);
+  const curByProc = calcByProc(currentCfg, curUnits, true);
   const newByProc = Object.fromEntries(
-    PROCS.map((p) => [p, calcByProc(newCfg, newUnits)[p] * mult(p, true)])
+    PROCS.map((p) => [p, calcByProc(newCfg, newUnits, false)[p] * mult(p, true)])
   ) as Record<ProcessKey, number>;
 
   const sum = (o: Record<ProcessKey, number>) => Object.values(o).reduce((a, b) => a + b, 0);
@@ -295,7 +299,8 @@ export default function Page() {
       const denom = units / 1000;
       const fallback = currentCfg[p].rate || 0;
       const rate = denom > 0 ? hours / denom : fallback;
-      derivedRates[p] = Number.isFinite(rate) ? rate : fallback;
+      const clean = Number.isFinite(rate) ? rate : fallback;
+      derivedRates[p] = Math.max(0, Math.round(clean * 10) / 10);
     });
     setCurrentCfg((cfg) => {
       const next = { ...cfg };
@@ -308,7 +313,8 @@ export default function Page() {
         const factorRaw = NEW_RATE_FACTOR[p];
         const factor = factorRaw > 0 && factorRaw < 1 ? factorRaw : 0.95;
         const improved = derivedRates[p] * factor;
-        next[p] = { ...next[p], rate: Number.isFinite(improved) ? improved : next[p].rate };
+        const clean = Number.isFinite(improved) ? improved : next[p].rate;
+        next[p] = { ...next[p], rate: Math.max(0, Math.round(clean * 10) / 10) };
       });
       return next;
     });
