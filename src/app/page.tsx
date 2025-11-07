@@ -355,7 +355,7 @@ export default function Page() {
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="flex items-center gap-3"><Factory className="w-6 h-6 text-slate-700" /><h1 className="text-xl font-semibold">Kmart Store Operating Model</h1></div>
 
-        <div className="sticky top-4 z-10 bg-gradient-to-b from-slate-50/95 to-white/95 backdrop-blur-md rounded-2xl border border-slate-200 shadow-sm px-4 py-3">
+        <div className="sticky top-4 z-10 bg-gradient-to-b from-white/95 to-slate-50/90 backdrop-blur-xl rounded-3xl border border-white/80 shadow-2xl px-4 py-4">
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <HeroStat label="Total current hours" value={fmt(Math.round(model.curHours))} helper={`${fmt(curProd, 2)} ct/hr`} color="from-sky-600 via-sky-500 to-sky-400" />
             <HeroStat label="Total new hours" value={fmt(Math.round(model.newHours))} helper={`${fmt(newProd, 2)} ct/hr`} color="from-emerald-600 via-emerald-500 to-emerald-400" />
@@ -363,7 +363,7 @@ export default function Page() {
             <HeroStat label={`Network (${inputs.stores} stores)`} value={`${fmt(Math.round(model.benefit * inputs.stores))} hrs`} helper={`≈ A${fmt(Math.round(model.savings * inputs.stores))}/wk`} color="from-rose-600 via-rose-500 to-rose-400" />
           </div>
         </div>
-        <Card className="shadow-sm"><CardContent className="p-4"><div className="text-sm font-medium mb-1">Annualised network benefit</div><div className="text-3xl font-semibold">A${fmt(networkAnnual)}</div><div className="text-sm text-slate-600 mt-1">Weekly: A${fmt(Math.round(model.savings * inputs.stores))} · Saved: {pctSaved}% of current hours</div>
+        <Card className="shadow-xl border border-white/70 bg-gradient-to-br from-white via-slate-50 to-slate-100 backdrop-blur"><CardContent className="p-4"><div className="text-sm font-medium mb-1">Annualised network benefit</div><div className="text-3xl font-semibold">A${fmt(networkAnnual)}</div><div className="text-sm text-slate-600 mt-1">Weekly: A${fmt(Math.round(model.savings * inputs.stores))} · Saved: {pctSaved}% of current hours</div>
           <div className="mt-3"><div className="text-xs text-slate-600 mb-1">Confidence levels</div>
             <div className="grid grid-cols-3 gap-2 text-sm">{[{ label: "Conservative", m: 0.8 }, { label: "Expected", m: 1.0 }, { label: "Stretch", m: 1.2 }].map((b) => (
               <div key={b.label} className="border rounded-lg p-2"><div className="text-[11px] text-slate-500">{b.label}</div><div className="font-medium">A${fmt(Math.round(networkAnnual * b.m))}/yr</div></div>
@@ -372,7 +372,7 @@ export default function Page() {
         </CardContent></Card>
 
         <div className="grid lg:grid-cols-2 gap-4">
-          <Card className="shadow-sm"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium flex items-center justify-between">Process rate comparison<span className="text-xs text-slate-500">Rate / 1000</span></div><RateCompareChart currentCfg={currentCfg} newCfg={newCfg} /></CardContent></Card>
+          <Card className="shadow-xl border border-white/70 bg-gradient-to-b from-white via-slate-50 to-slate-100 backdrop-blur"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium flex items-center justify-between">Process rate comparison<span className="text-xs text-slate-500">Rate / 1000</span></div><RateCompareChart currentCfg={currentCfg} newCfg={newCfg} /></CardContent></Card>
           <DriverImpactCard
             cartons={inputs.cartonsDelivered}
             topCategory={Object.entries(split).sort((a, b) => (b[1] || 0) - (a[1] || 0))[0]}
@@ -406,11 +406,11 @@ export default function Page() {
                     <NumInput label="Average hourly rate (AHR)" val={inputs.hourlyRate} step={0.5} set={(n) => setInputs((s) => ({ ...s, hourlyRate: Math.max(0, n) }))} />
                     <NumInput label="Stores (network)" val={inputs.stores} set={(n) => setInputs((s) => ({ ...s, stores: Math.max(1, n) }))} />
                   </div>
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3 space-y-3">
+                  <div className="rounded-3xl border border-white/70 bg-gradient-to-br from-white via-slate-50 to-slate-100 shadow-xl p-4 space-y-3">
                     <div className="text-xs uppercase tracking-wide text-slate-500">Issue scenarios</div>
                     <div className="grid md:grid-cols-2 gap-3">
                       {ISSUES.map((it) => (
-                        <div key={it.id} className="border rounded-xl bg-white/80 px-3 py-2">
+                        <div key={it.id} className="border rounded-xl bg-white/90 px-3 py-2 shadow-sm">
                           <div className="flex items-center justify-between">
                             <div className="text-sm font-medium text-slate-800">{it.name}</div>
                             <Switch checked={!!issues[it.id]} onCheckedChange={(v) => setIssues((s) => ({ ...s, [it.id]: v }))} />
@@ -467,7 +467,7 @@ export default function Page() {
                 />
               </div>
             </CardContent></Card>
-            <Card className="shadow-sm"><CardContent className="p-4 space-y-6">
+            <Card className="shadow-2xl border border-white/70 bg-gradient-to-b from-white via-slate-50 to-slate-100 backdrop-blur"><CardContent className="p-4 space-y-6">
               <CartonFlowCompare
                 current={{
                   label: "Current model",
@@ -493,15 +493,15 @@ export default function Page() {
               />
             </CardContent></Card>
             <div className="grid lg:grid-cols-2 gap-4">
-              <Card className="shadow-sm"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium">Net savings composition (by process)</div><SavingsDonut deltas={deltaRows} net={model.benefit} /></CardContent></Card>
-              <Card className="shadow-sm"><CardContent className="p-4"><div className="text-sm font-medium mb-2">Benefit waterfall: Current → processes → New</div><WaterfallBenefit rows={procRows} cur={model.curHours} next={model.newHours} /></CardContent></Card>
+              <Card className="shadow-lg border border-white/60 bg-gradient-to-br from-white via-slate-50 to-slate-100"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium">Net savings composition (by process)</div><SavingsDonut deltas={deltaRows} net={model.benefit} /></CardContent></Card>
+              <Card className="shadow-lg border border-white/60 bg-gradient-to-br from-white via-slate-50 to-slate-100"><CardContent className="p-4"><div className="text-sm font-medium mb-2">Benefit waterfall: Current → processes → New</div><WaterfallBenefit rows={procRows} cur={model.curHours} next={model.newHours} /></CardContent></Card>
             </div>
             <div className="grid lg:grid-cols-2 gap-4">
               <Card className="shadow-sm"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium">Net savings composition (by process)</div><SavingsDonut deltas={deltaRows} net={model.benefit} /></CardContent></Card>
               <Card className="shadow-sm"><CardContent className="p-4"><div className="text-sm font-medium mb-2">Benefit waterfall: Current → processes → New</div><WaterfallBenefit rows={procRows} cur={model.curHours} next={model.newHours} /></CardContent></Card>
             </div>
 
-            <Card className="shadow-sm"><CardContent className="p-4 space-y-4">
+            <Card className="shadow-lg border border-white/70 bg-gradient-to-br from-white via-slate-50 to-slate-100"><CardContent className="p-4 space-y-4">
               <div className="text-sm font-medium">Value Stream Map</div>
               <LeanVSM
                 curHours={model.curByProc}
@@ -517,7 +517,7 @@ export default function Page() {
               />
             </CardContent></Card>
 
-            <Card className="shadow-sm"><CardContent className="p-4">
+            <Card className="shadow-lg border border-white/70 bg-gradient-to-br from-white via-slate-50 to-slate-100"><CardContent className="p-4">
               <div className="text-sm font-medium mb-2">Lean insights</div>
               <LeanInsights curHours={model.curByProc} newHours={model.newByProc} vaCur={vaCur} waitCur={waitCur}
                 onApplyRate={(p, pct) => setNewCfg((s) => ({ ...s, [p]: { ...s[p], rate: Math.max(0, s[p].rate * (1 - pct)) } }))}
@@ -527,17 +527,17 @@ export default function Page() {
           </TabsContent>
 
           <TabsContent value="explorer" className="space-y-6">
-            <Card className="shadow-sm"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium">Import forecast hours (.xlsx)</div>
+            <Card className="shadow-lg border border-white/70 bg-gradient-to-br from-white via-slate-50 to-slate-100"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium">Import forecast hours (.xlsx)</div>
               <div className="grid sm:grid-cols-2 gap-3"><div className="space-y-1"><Label className="text-xs">File (sheet: &quot;Forecast Roster Hours&quot;)</Label><Input type="file" accept=".xlsx,.xls" onChange={onExcel} /></div>
                 <div className="space-y-1"><Label className="text-xs">Status</Label><div className="text-sm text-slate-700">{sheetHours ? `${Object.keys(sheetHours).length} processes loaded: ${Object.keys(sheetHours).join(", ")}` : "No file loaded"}</div></div>
               </div>
             </CardContent></Card>
             <div className="grid lg:grid-cols-2 gap-4">
-              <Card className="shadow-sm"><CardContent className="p-4 space-y-4">
+              <Card className="shadow-lg border border-white/70 bg-gradient-to-br from-white via-slate-50 to-slate-100"><CardContent className="p-4 space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-sm font-medium">Per-process parameters (Current)</div><Button size="sm" variant="outline" onClick={deriveRatesFromHours}>Auto-calc rates</Button></div>
                 <ProcTable cfg={currentCfg} setCfg={setCurrentCfg} sheetHours={sheetHours} workload={model.curUnits} hoursMap={model.curByProc} />
               </CardContent></Card>
-              <Card className="shadow-sm"><CardContent className="p-4 space-y-4">
+              <Card className="shadow-lg border border-white/70 bg-gradient-to-br from-white via-slate-50 to-slate-100"><CardContent className="p-4 space-y-4">
                 <div className="flex items-center justify-between gap-2"><div className="text-sm font-medium">Per-process parameters (New)</div><div className="text-xs text-slate-500">Shows % vs current</div></div>
                 <ProcTable cfg={newCfg} setCfg={setNewCfg} sheetHours={sheetHours} compareRates={currentCfg} workload={model.newUnits} hoursMap={model.newByProc} />
               </CardContent></Card>
@@ -560,7 +560,7 @@ function ProcTable({ cfg, setCfg, sheetHours, compareRates, workload, hoursMap }
   return (
     <div className="grid md:grid-cols-2 gap-4">
       {PROCS.map((p) => (
-        <div key={p} className="border rounded-lg p-3 space-y-2">
+        <div key={p} className="border rounded-2xl bg-white/85 shadow-sm p-3 space-y-2">
           <div className="text-sm font-medium flex items-center justify-between"><span>{PROC_LABEL(p)}</span><span className="text-[11px] text-slate-500">{sheetHours?.[p] != null ? `Forecast: ${fmt(sheetHours[p])} hrs` : "Forecast: —"}</span></div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1"><Label className="text-xs">Unit</Label><div className="flex gap-2 text-xs">{(["cartons", "online"] as Unit[]).map((u) => (
@@ -845,7 +845,7 @@ function FlowPanel({
 }: FlowPanelConfig & { accent: "current" | "new" }) {
   const accentColor = accent === "current" ? "text-sky-600" : "text-emerald-600";
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 rounded-2xl border border-white/60 bg-white/80 p-3 shadow-inner">
       <div className="flex items-center justify-between">
         <div>
           <div className={`text-xs uppercase tracking-wide ${accentColor}`}>{subtitle}</div>
@@ -856,7 +856,7 @@ function FlowPanel({
           <div className="text-2xl font-semibold text-slate-900">{fmt(Math.round(hours))}</div>
         </div>
       </div>
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="overflow-x-auto rounded-3xl border border-white/70 bg-gradient-to-r from-white via-slate-50 to-white shadow-2xl">
         <div className="min-w-[960px]">
           <SankeySimple cartons={cartons} chCartons={flow} nvat={nvat} cfg={cfg} procHours={procHours} />
         </div>
@@ -957,7 +957,7 @@ function DriverImpactCard({
     },
   ];
   return (
-    <Card className="shadow-sm border-slate-200">
+    <Card className="shadow-xl border border-white/70 bg-gradient-to-br from-white via-emerald-50/70 to-slate-50/70 backdrop-blur">
       <CardContent className="p-4 space-y-4">
         <div>
           <div className="text-xs uppercase tracking-wide text-slate-500">Driver impact</div>
@@ -1110,7 +1110,7 @@ function LeanVSM({ curHours, newHours, curUnits, newUnits, vaCur, vaNew, waitCur
     });
     return { vaT, nvaT, waitT, lead: vaT + nvaT + waitT };
   });
-  const maxLead = Math.max(1, ...model.map((t) => t.lead));
+  const maxLead = Math.max(1, ...totals.map((t) => t.lead));
   const avail = W - pad * 2 - (PROCS.length - 1) * gap; // leave space for inter-process gaps
   const scaleX = (hrs: number) => (hrs / maxLead) * Math.max(100, avail);
   const H = pad * 2 + rowGap * rows.length + 40; // dynamic height
@@ -1210,7 +1210,7 @@ function LeanInsights({ curHours, newHours, vaCur, waitCur, onApplyRate, onReduc
 
 function HeroStat({ label, value, helper, color }: { label: string; value: string; helper: string; color: string }) {
   return (
-    <div className={`rounded-2xl text-white p-3 bg-gradient-to-br ${color}`}>
+    <div className={`rounded-3xl text-white p-4 shadow-lg bg-gradient-to-br ${color}`}>
       <div className="text-[11px] uppercase tracking-wide opacity-80">{label}</div>
       <div className="text-2xl font-semibold leading-tight">{value}</div>
       <div className="text-xs opacity-90 mt-1">{helper}</div>
