@@ -355,7 +355,7 @@ export default function Page() {
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="flex items-center gap-3"><Factory className="w-6 h-6 text-slate-700" /><h1 className="text-xl font-semibold">Kmart Store Operating Model</h1></div>
 
-        <div className="grid lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)] gap-4">
+        <div className="grid lg:grid-cols-1 gap-4">
           <Card className="shadow-sm border-slate-200">
             <CardContent className="p-4">
               <div className="flex items-center justify-between mb-4">
@@ -373,6 +373,17 @@ export default function Page() {
               </div>
             </CardContent>
           </Card>
+        </div>
+        <Card className="shadow-sm"><CardContent className="p-4"><div className="text-sm font-medium mb-1">Annualised network benefit</div><div className="text-3xl font-semibold">A${fmt(networkAnnual)}</div><div className="text-sm text-slate-600 mt-1">Weekly: A${fmt(Math.round(model.savings * inputs.stores))} · Saved: {pctSaved}% of current hours</div>
+          <div className="mt-3"><div className="text-xs text-slate-600 mb-1">Confidence levels</div>
+            <div className="grid grid-cols-3 gap-2 text-sm">{[{ label: "Conservative", m: 0.8 }, { label: "Expected", m: 1.0 }, { label: "Stretch", m: 1.2 }].map((b) => (
+              <div key={b.label} className="border rounded-lg p-2"><div className="text-[11px] text-slate-500">{b.label}</div><div className="font-medium">A${fmt(Math.round(networkAnnual * b.m))}/yr</div></div>
+            ))}</div>
+          </div>
+        </CardContent></Card>
+
+        <div className="grid lg:grid-cols-2 gap-4">
+          <Card className="shadow-sm"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium flex items-center justify-between">Process rate comparison<span className="text-xs text-slate-500">Rate / 1000</span></div><RateCompareChart currentCfg={currentCfg} newCfg={newCfg} /></CardContent></Card>
           <DriverImpactCard
             cartons={inputs.cartonsDelivered}
             topCategory={Object.entries(split).sort((a, b) => (b[1] || 0) - (a[1] || 0))[0]}
@@ -382,10 +393,6 @@ export default function Page() {
             productivityDelta={prodDelta}
             savings={model.savings}
           />
-        </div>
-        <div className="grid lg:grid-cols-2 gap-4">
-          <Card className="shadow-sm"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium">Net savings composition (by process)</div><SavingsDonut deltas={deltaRows} net={model.benefit} /></CardContent></Card>
-          <Card className="shadow-sm"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium flex items-center justify-between">Process rate comparison<span className="text-xs text-slate-500">Rate / 1000</span></div><RateCompareChart currentCfg={currentCfg} newCfg={newCfg} /></CardContent></Card>
         </div>
 
         <Tabs defaultValue="overview">
@@ -450,18 +457,12 @@ export default function Page() {
               />
             </CardContent></Card>
 
-            {/* Grouped: Annualised benefit + Waterfall */}
             <div className="grid lg:grid-cols-2 gap-4">
-              <Card className="shadow-sm"><CardContent className="p-4"><div className="text-sm font-medium mb-1">Annualised network benefit</div><div className="text-3xl font-semibold">A${fmt(networkAnnual)}</div><div className="text-sm text-slate-600 mt-1">Weekly: A${fmt(Math.round(model.savings * inputs.stores))} · Saved: {pctSaved}% of current hours</div>
-                <div className="mt-3"><div className="text-xs text-slate-600 mb-1">Confidence levels</div>
-                  <div className="grid grid-cols-3 gap-2 text-sm">{[{ label: "Conservative", m: 0.8 }, { label: "Expected", m: 1.0 }, { label: "Stretch", m: 1.2 }].map((b) => (
-                    <div key={b.label} className="border rounded-lg p-2"><div className="text-[11px] text-slate-500">{b.label}</div><div className="font-medium">A${fmt(Math.round(networkAnnual * b.m))}/yr</div></div>
-                  ))}</div>
-                </div>
-              </CardContent></Card>
-              <Card className="shadow-sm"><CardContent className="p-4"><div className="text-sm font-medium mb-2">Benefit waterfall: Current → processes → New</div><WaterfallBenefit rows={procRows} cur={model.curHours} next={model.newHours} /></CardContent></Card>
+              <Card className="shadow-sm"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium">Net savings composition (by process)</div><SavingsDonut deltas={deltaRows} net={model.benefit} /></CardContent></Card>
+              <Card className="shadow-sm"><CardContent className="p-4"><div className="text-sm font-medium mb-2">Benefit waterfall: Current ? processes ? New</div><WaterfallBenefit rows={procRows} cur={model.curHours} next={model.newHours} /></CardContent></Card>
             </div>
 
+            {/* Waterfall insights */}
             {/* Waterfall moved up into grouped section */}
 
             <Card className="shadow-sm"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium">Issue scenarios</div>
@@ -831,27 +832,11 @@ type FlowPanelConfig = {
 };
 
 function CartonFlowCompare({ current, next }: { current: FlowPanelConfig; next: FlowPanelConfig }) {
-  const [zoom, setZoom] = useState(1);
-  const zoomPct = Math.round(zoom * 100);
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-end gap-3 text-xs text-slate-600">
-        <span className="hidden sm:inline">Zoom Carton Flow</span>
-        <Slider
-          className="w-48"
-          value={[zoomPct]}
-          min={75}
-          max={160}
-          step={5}
-          onValueChange={(val) => setZoom(Math.max(0.5, (val[0] || 100) / 100))}
-        />
-        <span className="font-semibold text-slate-700">{zoomPct}%</span>
-      </div>
-      <div className="relative left-1/2 right-1/2 w-screen max-w-none -translate-x-1/2 px-2 sm:px-6 lg:px-12">
-        <div className="flex flex-col gap-10">
-          <FlowPanel accent="current" zoom={zoom} {...current} />
-          <FlowPanel accent="new" zoom={zoom} {...next} />
-        </div>
+    <div className="space-y-8 relative left-1/2 right-1/2 w-screen max-w-none -translate-x-1/2 px-2 sm:px-6 lg:px-12">
+      <div className="flex flex-col gap-12">
+        <FlowPanel accent="current" {...current} />
+        <FlowPanel accent="new" {...next} />
       </div>
     </div>
   );
@@ -867,15 +852,13 @@ function FlowPanel({
   cartons,
   flow,
   accent,
-  zoom,
-}: FlowPanelConfig & { accent: "current" | "new"; zoom: number }) {
-  const accentColor = accent === "current" ? "border-sky-200" : "border-emerald-200";
-  const bgGradient = accent === "current" ? "from-sky-50" : "from-emerald-50";
+}: FlowPanelConfig & { accent: "current" | "new" }) {
+  const accentColor = accent === "current" ? "text-sky-600" : "text-emerald-600";
   return (
-    <div className={`space-y-3 rounded-2xl border ${accentColor} bg-gradient-to-br ${bgGradient} to-white p-4 shadow-sm`}>
+    <div className="space-y-3">
       <div className="flex items-center justify-between">
         <div>
-          <div className="text-xs uppercase tracking-wide text-slate-500">{subtitle}</div>
+          <div className={`text-xs uppercase tracking-wide ${accentColor}`}>{subtitle}</div>
           <div className="text-base font-semibold text-slate-900">{label}</div>
         </div>
         <div className="text-right">
@@ -883,11 +866,8 @@ function FlowPanel({
           <div className="text-2xl font-semibold text-slate-900">{fmt(Math.round(hours))}</div>
         </div>
       </div>
-      <div className="rounded-2xl border border-white/60 bg-white/80 backdrop-blur-sm overflow-x-auto px-3 py-6">
-        <div
-          className="min-w-[720px]"
-          style={{ transform: `scale(${zoom})`, transformOrigin: "top center" }}
-        >
+      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="min-w-[960px]">
           <SankeySimple cartons={cartons} chCartons={flow} nvat={nvat} cfg={cfg} procHours={procHours} />
         </div>
       </div>
