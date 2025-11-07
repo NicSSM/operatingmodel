@@ -80,6 +80,12 @@ const DEFAULT_NEW: Record<ProcessKey, ProcCfg> = {
   Online: { unit: "online", useRoster: false, rate: 50, roster: 0 },
   Backfill: { unit: "cartons", useRoster: false, rate: 15, roster: 0 },
 };
+const NEW_RATE_FACTOR: Record<ProcessKey, number> = PROCS.reduce((acc, p) => {
+  const base = DEFAULT_CURRENT[p].rate || 1;
+  const ratio = base ? DEFAULT_NEW[p].rate / base : 1;
+  acc[p] = ratio && Number.isFinite(ratio) ? ratio : 1;
+  return acc;
+}, {} as Record<ProcessKey, number>);
 
 // Lean / VSM defaults
 const DEFAULT_VA: Record<ProcessKey, number> = {
@@ -281,6 +287,33 @@ export default function Page() {
   const pctSaved = totals.curHours ? Math.round((totals.benefit / totals.curHours) * 100) : 0;
   const networkAnnual = Math.round(Math.round(totals.savings) * inputs.stores * 52);
 
+  const deriveRatesFromHours = () => {
+    const derivedRates: Record<ProcessKey, number> = {} as Record<ProcessKey, number>;
+    PROCS.forEach((p) => {
+      const hours = totals.curByProc[p] || 0;
+      const units = totals.curUnits[p] || 0;
+      const denom = units / 1000;
+      const fallback = currentCfg[p].rate || 0;
+      const rate = denom > 0 ? hours / denom : fallback;
+      derivedRates[p] = Number.isFinite(rate) ? rate : fallback;
+    });
+    setCurrentCfg((cfg) => {
+      const next = { ...cfg };
+      PROCS.forEach((p) => { next[p] = { ...next[p], rate: derivedRates[p] }; });
+      return next;
+    });
+    setNewCfg((cfg) => {
+      const next = { ...cfg };
+      PROCS.forEach((p) => {
+        const factorRaw = NEW_RATE_FACTOR[p];
+        const factor = factorRaw > 0 && factorRaw < 1 ? factorRaw : 0.95;
+        const improved = derivedRates[p] * factor;
+        next[p] = { ...next[p], rate: Number.isFinite(improved) ? improved : next[p].rate };
+      });
+      return next;
+    });
+  };
+
   async function onExcel(e: React.ChangeEvent<HTMLInputElement>) {
     try {
       const f = e.target.files?.[0]; if (!f) return;
@@ -293,7 +326,7 @@ export default function Page() {
       const mapName = (s: string): ProcessKey | null => {
         const t = norm(String(s || ""));
         if (t.includes("decant")) return "Decant";
-        if (t.includes("loadfill") || t.includes("sequence") || t === "lf") return "Loadfill";
+        if (t.includes("loadfill") || t === "lf") return "Loadfill";
         if (t.includes("packaway")) return "Packaway";
         if (t.includes("digitalshopkeeping") || t.includes("shopkeeping") || (t.includes("digital") && !t.includes("online"))) return "Digital";
         if (t.includes("online") || t === "oms") return "Online";
@@ -425,8 +458,14 @@ export default function Page() {
                 <div className="space-y-1"><Label className="text-xs">Status</Label><div className="text-sm text-slate-700">{sheetHours ? `${Object.keys(sheetHours).length} processes loaded: ${Object.keys(sheetHours).join(", ")}` : "No file loaded"}</div></div>
               </div>
             </CardContent></Card>
-            <Card className="shadow-sm"><CardContent className="p-4 space-y-4"><div className="text-sm font-medium">Per‑process parameters (Current)</div><ProcTable cfg={currentCfg} setCfg={setCurrentCfg} sheetHours={sheetHours} /></CardContent></Card>
-            <Card className="shadow-sm"><CardContent className="p-4 space-y-4"><div className="text-sm font-medium">Per‑process parameters (New)</div><ProcTable cfg={newCfg} setCfg={setNewCfg} sheetHours={sheetHours} /></CardContent></Card>
+            <Card className="shadow-sm"><CardContent className="p-4 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-sm font-medium">Per-process parameters (Current)</div><Button size="sm" variant="outline" onClick={deriveRatesFromHours}>Auto-calc rates</Button></div>
+              <ProcTable cfg={currentCfg} setCfg={setCurrentCfg} sheetHours={sheetHours} />
+            </CardContent></Card>
+            <Card className="shadow-sm"><CardContent className="p-4 space-y-4">
+              <div className="flex items-center justify-between gap-2"><div className="text-sm font-medium">Per-process parameters (New)</div><div className="text-xs text-slate-500">Shows % vs current</div></div>
+              <ProcTable cfg={newCfg} setCfg={setNewCfg} sheetHours={sheetHours} compareRates={currentCfg} />
+            </CardContent></Card>
           </TabsContent>
           <TabsContent value="lean" className="space-y-6">
             <Card className="shadow-sm"><CardContent className="p-4 space-y-3">
@@ -473,7 +512,7 @@ export default function Page() {
   );
 }
 
-function ProcTable({ cfg, setCfg, sheetHours }: { cfg: Record<ProcessKey, ProcCfg>; setCfg: React.Dispatch<React.SetStateAction<Record<ProcessKey, ProcCfg>>>; sheetHours: Record<ProcessKey, number> | null; }) {
+function ProcTable({ cfg, setCfg, sheetHours, compareRates }: { cfg: Record<ProcessKey, ProcCfg>; setCfg: React.Dispatch<React.SetStateAction<Record<ProcessKey, ProcCfg>>>; sheetHours: Record<ProcessKey, number> | null; compareRates?: Record<ProcessKey, ProcCfg>; }) {
   return (
     <div className="grid md:grid-cols-2 gap-4">
       {PROCS.map((p) => (
@@ -484,7 +523,17 @@ function ProcTable({ cfg, setCfg, sheetHours }: { cfg: Record<ProcessKey, ProcCf
               <Button key={u} variant={cfg[p].unit === u ? "default" : "outline"} className="h-7 px-2" onClick={() => setCfg((s) => ({ ...s, [p]: { ...s[p], unit: u } }))}>{u}</Button>
             ))}</div></div>
             <div className="space-y-1"><Label className="text-xs">Set Custom</Label><div><Switch checked={cfg[p].useRoster} onCheckedChange={(v) => setCfg((s) => ({ ...s, [p]: { ...s[p], useRoster: v } }))} /></div></div>
-            <NumInput label="Rate / 1000" val={cfg[p].rate} set={(n) => setCfg((s) => ({ ...s, [p]: { ...s[p], rate: Math.max(0, n) } }))} />
+            <div className="space-y-1">
+              <NumInput label="Rate / 1000" val={cfg[p].rate} set={(n) => setCfg((s) => ({ ...s, [p]: { ...s[p], rate: Math.max(0, n) } }))} />
+              {compareRates?.[p]?.rate != null ? (() => {
+                const baseRate = compareRates?.[p]?.rate ?? 0;
+                const base = baseRate;
+                const diff = base > 0 ? ((base - cfg[p].rate) / base) * 100 : 0;
+                const color = diff >= 0 ? "text-emerald-600" : "text-rose-600";
+                const label = diff >= 0 ? "faster" : "slower";
+                return <div className={`text-[11px] ${color}`}>{diff >= 0 ? "+" : ""}{fmt(diff, 1)}% {label} vs current</div>;
+              })() : null}
+            </div>
             <NumInput label="Custom Hours" val={cfg[p].roster} set={(n) => setCfg((s) => ({ ...s, [p]: { ...s[p], roster: Math.max(0, n) } }))} />
           </div>
           {sheetHours?.[p] != null && (
