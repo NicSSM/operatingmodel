@@ -255,9 +255,9 @@ export default function Page() {
   const [nvatCur, setNvatCur] = useState({ bounce: 0.2, lf2d: 0.15 });
 
   // Lean / VSM parameters (Value-Add %, Wait hours per week)
-  const [vaCur, setVaCur] = useState<Record<ProcessKey, number>>(DEFAULT_VA);
-  const [vaNew, setVaNew] = useState<Record<ProcessKey, number>>(DEFAULT_VA);
-  const [waitCur, setWaitCur] = useState<Record<ProcessKey, number>>(ZERO_WAIT);
+  const [vaCur] = useState<Record<ProcessKey, number>>(DEFAULT_VA);
+  const [vaNew] = useState<Record<ProcessKey, number>>(DEFAULT_VA);
+  const [waitCur] = useState<Record<ProcessKey, number>>(ZERO_WAIT);
   const [waitNew, setWaitNew] = useState<Record<ProcessKey, number>>(ZERO_WAIT);
 
   useEffect(() => {
@@ -351,7 +351,7 @@ export default function Page() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white p-6">
+    <div className="min-h-screen bg-slate-100 bg-[radial-gradient(circle_at_top,_#e0f2fe_0%,_transparent_40%),radial-gradient(circle_at_bottom,_#fdf2f8_0%,_transparent_45%)] p-6">
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="flex items-center gap-3"><Factory className="w-6 h-6 text-slate-700" /><h1 className="text-xl font-semibold">Kmart Store Operating Model</h1></div>
 
@@ -392,7 +392,7 @@ export default function Page() {
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
-            <Card className="shadow-sm"><CardContent className="p-4 space-y-5">
+            <Card className="shadow-lg border border-white/70 bg-white/90 backdrop-blur"><CardContent className="p-4 space-y-5">
               <div className="flex items-center justify-between">
                 <div className="text-sm font-medium">Driver controls</div>
                 <div className="text-xs text-slate-500">Adjust inputs & mix to see instant impact</div>
@@ -422,6 +422,37 @@ export default function Page() {
                         </div>
                       ))}
                     </div>
+                    {(() => {
+                      const cur: Record<ProcessKey, number> = PROCS.reduce((a, p) => { a[p] = ISSUES.reduce((s, it) => s + (issues[it.id] ? it.impact[p] || 0 : 0), 0); return a; }, {} as Record<ProcessKey, number>);
+                      const nxt: Record<ProcessKey, number> = PROCS.reduce((a, p) => { a[p] = ISSUES.reduce((s, it) => s + (issues[it.id] ? (it.impact[p] || 0) * (1 - mitigation) : 0), 0); return a; }, {} as Record<ProcessKey, number>);
+                      const keys = PROCS.filter((p) => (cur[p] || 0) !== 0 || (nxt[p] || 0) !== 0);
+                      if (!keys.length) return null;
+                      return (
+                        <div className="pt-3 border-t border-slate-200 space-y-2">
+                          <div className="flex items-center justify-between text-xs text-slate-600">
+                            <span className="font-medium">Mitigation (new model)</span>
+                            <span>{Math.round(mitigation * 100)}%</span>
+                          </div>
+                          <Slider value={[Math.round(mitigation * 100)]} step={1} onValueChange={(v) => setMitigation(clamp((v[0] || 0) / 100))} />
+                          <div className="grid sm:grid-cols-2 gap-2 text-[11px] text-slate-600">
+                            {keys.map((p) => {
+                              const c = Math.round((cur[p] || 0) * 100);
+                              const n = Math.round((nxt[p] || 0) * 100);
+                              const cc = c >= 0 ? "text-emerald-700" : "text-rose-700";
+                              const nc = n >= 0 ? "text-emerald-700" : "text-rose-700";
+                              return (
+                                <div key={p} className="border rounded-lg bg-white/80 px-2 py-1 flex items-center justify-between">
+                                  <span>{PROC_LABEL(p)}</span>
+                                  <span className={`ml-2 ${cc}`}>Cur {c > 0 ? "+" : ""}{c}%</span>
+                                  <span className="mx-1 text-slate-400">→</span>
+                                  <span className={nc}>New {n > 0 ? "+" : ""}{n}%</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
                 <CategoryControls
@@ -436,7 +467,6 @@ export default function Page() {
                 />
               </div>
             </CardContent></Card>
-
             <Card className="shadow-sm"><CardContent className="p-4 space-y-6">
               <CartonFlowCompare
                 current={{
@@ -462,78 +492,14 @@ export default function Page() {
                 }}
               />
             </CardContent></Card>
-
             <div className="grid lg:grid-cols-2 gap-4">
               <Card className="shadow-sm"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium">Net savings composition (by process)</div><SavingsDonut deltas={deltaRows} net={model.benefit} /></CardContent></Card>
-              <Card className="shadow-sm"><CardContent className="p-4"><div className="text-sm font-medium mb-2">Benefit waterfall: Current ? processes ? New</div><WaterfallBenefit rows={procRows} cur={model.curHours} next={model.newHours} /></CardContent></Card>
+              <Card className="shadow-sm"><CardContent className="p-4"><div className="text-sm font-medium mb-2">Benefit waterfall: Current → processes → New</div><WaterfallBenefit rows={procRows} cur={model.curHours} next={model.newHours} /></CardContent></Card>
             </div>
-
-            {/* Waterfall insights */}
-            {/* Waterfall moved up into grouped section */}
-
-            <Card className="shadow-sm"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium">Issue scenarios</div>
-              <div className="grid md:grid-cols-3 gap-4">{ISSUES.map((it) => (
-                <div key={it.id} className="border rounded-lg p-3"><div className="flex items-center justify-between"><div className="text-sm font-medium">{it.name}</div><Switch checked={!!issues[it.id]} onCheckedChange={(v) => setIssues((s) => ({ ...s, [it.id]: v }))} /></div>
-                  <div className="mt-2 flex flex-wrap gap-1">{Object.entries(it.impact).map(([pk, v]) => {
-                    const pct = Math.round((v || 0) * 100); const up = pct > 0; const color = up ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-rose-50 text-rose-700 border-rose-200";
-                    return (<span key={pk} className={`text-[11px] px-2 py-0.5 rounded border ${color}`}>{PROC_LABEL(pk as ProcessKey)} {up ? "+" : ""}{pct}%</span>);
-                  })}</div>
-                </div>
-              ))}</div>
-              <div className="pt-2"><div className="text-xs mb-1">Mitigation (New model)</div>
-                <Slider value={[Math.round(mitigation * 100)]} step={1} onValueChange={(v) => setMitigation(clamp((v[0] || 0) / 100))} />
-                {(() => {
-                  const cur: Record<ProcessKey, number> = PROCS.reduce((a, p) => { a[p] = ISSUES.reduce((s, it) => s + (issues[it.id] ? it.impact[p] || 0 : 0), 0); return a; }, {} as Record<ProcessKey, number>);
-                  const nxt: Record<ProcessKey, number> = PROCS.reduce((a, p) => { a[p] = ISSUES.reduce((s, it) => s + (issues[it.id] ? (it.impact[p] || 0) * (1 - mitigation) : 0), 0); return a; }, {} as Record<ProcessKey, number>);
-                  const keys = PROCS.filter((p) => (cur[p] || 0) !== 0 || (nxt[p] || 0) !== 0);
-                  if (!keys.length) return null;
-                  return (
-                    <div className="mt-2 grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                      {keys.map((p) => {
-                        const c = Math.round((cur[p] || 0) * 100); const n = Math.round((nxt[p] || 0) * 100);
-                        const cc = c >= 0 ? "text-emerald-700" : "text-rose-700"; const nc = n >= 0 ? "text-emerald-700" : "text-rose-700";
-                        return (
-                          <div key={p} className="text-[11px] border rounded px-2 py-1 flex items-center justify-between"><span className="text-slate-600">{PROC_LABEL(p)}</span><span className={`ml-2 ${cc}`}>Cur {c > 0 ? "+" : ""}{c}%</span><span className="mx-1 text-slate-400">→</span><span className={` ${nc}`}>New {n > 0 ? "+" : ""}{n}%</span></div>
-                        );
-                      })}
-                    </div>
-                  );
-                })()}
-              </div>
-            </CardContent></Card>
-          </TabsContent>
-
-          <TabsContent value="explorer" className="space-y-6">
-            <Card className="shadow-sm"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium">Import forecast hours (.xlsx)</div>
-              <div className="grid sm:grid-cols-2 gap-3"><div className="space-y-1"><Label className="text-xs">File (sheet: &quot;Forecast Roster Hours&quot;)</Label><Input type="file" accept=".xlsx,.xls" onChange={onExcel} /></div>
-                <div className="space-y-1"><Label className="text-xs">Status</Label><div className="text-sm text-slate-700">{sheetHours ? `${Object.keys(sheetHours).length} processes loaded: ${Object.keys(sheetHours).join(", ")}` : "No file loaded"}</div></div>
-              </div>
-            </CardContent></Card>
             <div className="grid lg:grid-cols-2 gap-4">
-              <Card className="shadow-sm"><CardContent className="p-4 space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-sm font-medium">Per-process parameters (Current)</div><Button size="sm" variant="outline" onClick={deriveRatesFromHours}>Auto-calc rates</Button></div>
-                <ProcTable cfg={currentCfg} setCfg={setCurrentCfg} sheetHours={sheetHours} workload={model.curUnits} hoursMap={model.curByProc} />
-              </CardContent></Card>
-              <Card className="shadow-sm"><CardContent className="p-4 space-y-4">
-                <div className="flex items-center justify-between gap-2"><div className="text-sm font-medium">Per-process parameters (New)</div><div className="text-xs text-slate-500">Shows % vs current</div></div>
-                <ProcTable cfg={newCfg} setCfg={setNewCfg} sheetHours={sheetHours} compareRates={currentCfg} workload={model.newUnits} hoursMap={model.newByProc} />
-              </CardContent></Card>
+              <Card className="shadow-sm"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium">Net savings composition (by process)</div><SavingsDonut deltas={deltaRows} net={model.benefit} /></CardContent></Card>
+              <Card className="shadow-sm"><CardContent className="p-4"><div className="text-sm font-medium mb-2">Benefit waterfall: Current → processes → New</div><WaterfallBenefit rows={procRows} cur={model.curHours} next={model.newHours} /></CardContent></Card>
             </div>
-          </TabsContent>
-          <TabsContent value="lean" className="space-y-6">
-            <Card className="shadow-sm"><CardContent className="p-4 space-y-3">
-              <div className="text-sm font-medium">Lean parameters</div>
-              <div className="grid md:grid-cols-2 gap-4">
-                <div>
-                  <div className="text-xs text-slate-600 mb-1">Current model</div>
-                  <LeanProcTable va={vaCur} setVa={setVaCur} wait={waitCur} setWait={setWaitCur} />
-                </div>
-                <div>
-                  <div className="text-xs text-slate-600 mb-1">New model</div>
-                  <LeanProcTable va={vaNew} setVa={setVaNew} wait={waitNew} setWait={setWaitNew} onImproveRate={(p, pct) => setNewCfg((s) => ({ ...s, [p]: { ...s[p], rate: Math.max(0, s[p].rate * (1 - pct)) } }))} />
-                </div>
-              </div>
-            </CardContent></Card>
 
             <Card className="shadow-sm"><CardContent className="p-4 space-y-4">
               <div className="text-sm font-medium">Value Stream Map</div>
@@ -558,6 +524,24 @@ export default function Page() {
                 onReduceWait={(p, pct) => setWaitNew((w) => ({ ...w, [p]: Math.max(0, w[p] * (1 - pct)) }))}
               />
             </CardContent></Card>
+          </TabsContent>
+
+          <TabsContent value="explorer" className="space-y-6">
+            <Card className="shadow-sm"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium">Import forecast hours (.xlsx)</div>
+              <div className="grid sm:grid-cols-2 gap-3"><div className="space-y-1"><Label className="text-xs">File (sheet: &quot;Forecast Roster Hours&quot;)</Label><Input type="file" accept=".xlsx,.xls" onChange={onExcel} /></div>
+                <div className="space-y-1"><Label className="text-xs">Status</Label><div className="text-sm text-slate-700">{sheetHours ? `${Object.keys(sheetHours).length} processes loaded: ${Object.keys(sheetHours).join(", ")}` : "No file loaded"}</div></div>
+              </div>
+            </CardContent></Card>
+            <div className="grid lg:grid-cols-2 gap-4">
+              <Card className="shadow-sm"><CardContent className="p-4 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-sm font-medium">Per-process parameters (Current)</div><Button size="sm" variant="outline" onClick={deriveRatesFromHours}>Auto-calc rates</Button></div>
+                <ProcTable cfg={currentCfg} setCfg={setCurrentCfg} sheetHours={sheetHours} workload={model.curUnits} hoursMap={model.curByProc} />
+              </CardContent></Card>
+              <Card className="shadow-sm"><CardContent className="p-4 space-y-4">
+                <div className="flex items-center justify-between gap-2"><div className="text-sm font-medium">Per-process parameters (New)</div><div className="text-xs text-slate-500">Shows % vs current</div></div>
+                <ProcTable cfg={newCfg} setCfg={setNewCfg} sheetHours={sheetHours} compareRates={currentCfg} workload={model.newUnits} hoursMap={model.newByProc} />
+              </CardContent></Card>
+            </div>
           </TabsContent>
         </Tabs>
       </div>
@@ -1061,37 +1045,6 @@ function CategoryControls({
           </div>
         </>
       )}
-    </div>
-  );
-}
-
-function LeanProcTable({ va, setVa, wait, setWait, onImproveRate }: { va: Record<ProcessKey, number>; setVa: React.Dispatch<React.SetStateAction<Record<ProcessKey, number>>>; wait: Record<ProcessKey, number>; setWait: React.Dispatch<React.SetStateAction<Record<ProcessKey, number>>>; onImproveRate?: (p: ProcessKey, pct: number) => void; }) {
-  return (
-    <div className="grid md:grid-cols-2 gap-4">
-      {PROCS.map((p) => (
-        <div key={p} className="border rounded-lg p-3 space-y-2">
-          <div className="text-sm font-medium">{PROC_LABEL(p)}</div>
-          <div className="space-y-2">
-            <div className="space-y-1">
-              <Label className="text-xs">Value-Add %</Label>
-              <Slider value={[Math.round((va[p] || 0) * 100)]} min={0} max={100} step={1} onValueChange={(v) => setVa((s) => ({ ...s, [p]: clamp((v[0] || 0) / 100, 0, 1) }))} />
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <NumInput label="Wait hours / week" val={wait[p] || 0} set={(n) => setWait((s) => ({ ...s, [p]: Math.max(0, n) }))} />
-              {onImproveRate && (
-                <div className="space-y-1">
-                  <Label className="text-xs">Improve rate (%)</Label>
-                  <div className="flex flex-wrap gap-2 gap-y-1">
-                    {[5,10,15].map((pct) => (
-                      <Button key={pct} variant="outline" className="h-7 px-2 text-xs" onClick={() => onImproveRate(p, pct/100)}>-{pct}%</Button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      ))}
     </div>
   );
 }
