@@ -355,24 +355,13 @@ export default function Page() {
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="flex items-center gap-3"><Factory className="w-6 h-6 text-slate-700" /><h1 className="text-xl font-semibold">Kmart Store Operating Model</h1></div>
 
-        <div className="grid lg:grid-cols-1 gap-4">
-          <Card className="shadow-sm border-slate-200">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <div className="text-xs uppercase tracking-wide text-slate-500">Story so far</div>
-                  <div className="text-lg font-semibold text-slate-900">Where the new model is winning</div>
-                </div>
-                <div className="text-xs text-slate-500 hidden sm:block">Per store, weekly</div>
-              </div>
-              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                <HeroStat label="Total current hours" value={fmt(Math.round(model.curHours))} helper={`${fmt(curProd, 2)} ct/hr`} color="from-sky-600 via-sky-500 to-sky-400" />
-                <HeroStat label="Total new hours" value={fmt(Math.round(model.newHours))} helper={`${fmt(newProd, 2)} ct/hr`} color="from-emerald-600 via-emerald-500 to-emerald-400" />
-                <HeroStat label="Benefit (per store)" value={`${fmt(Math.round(model.benefit))} hrs`} helper={`≈ A${fmt(Math.round(model.savings))}/wk`} color="from-violet-600 via-violet-500 to-violet-400" />
-                <HeroStat label={`Network (${inputs.stores} stores)`} value={`${fmt(Math.round(model.benefit * inputs.stores))} hrs`} helper={`≈ A${fmt(Math.round(model.savings * inputs.stores))}/wk`} color="from-rose-600 via-rose-500 to-rose-400" />
-              </div>
-            </CardContent>
-          </Card>
+        <div className="sticky top-4 z-10 bg-gradient-to-b from-slate-50/95 to-white/95 backdrop-blur-md rounded-2xl border border-slate-200 shadow-sm px-4 py-3">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <HeroStat label="Total current hours" value={fmt(Math.round(model.curHours))} helper={`${fmt(curProd, 2)} ct/hr`} color="from-sky-600 via-sky-500 to-sky-400" />
+            <HeroStat label="Total new hours" value={fmt(Math.round(model.newHours))} helper={`${fmt(newProd, 2)} ct/hr`} color="from-emerald-600 via-emerald-500 to-emerald-400" />
+            <HeroStat label="Benefit (per store)" value={`${fmt(Math.round(model.benefit))} hrs`} helper={`≈ A${fmt(Math.round(model.savings))}/wk`} color="from-violet-600 via-violet-500 to-violet-400" />
+            <HeroStat label={`Network (${inputs.stores} stores)`} value={`${fmt(Math.round(model.benefit * inputs.stores))} hrs`} helper={`≈ A${fmt(Math.round(model.savings * inputs.stores))}/wk`} color="from-rose-600 via-rose-500 to-rose-400" />
+          </div>
         </div>
         <Card className="shadow-sm"><CardContent className="p-4"><div className="text-sm font-medium mb-1">Annualised network benefit</div><div className="text-3xl font-semibold">A${fmt(networkAnnual)}</div><div className="text-sm text-slate-600 mt-1">Weekly: A${fmt(Math.round(model.savings * inputs.stores))} · Saved: {pctSaved}% of current hours</div>
           <div className="mt-3"><div className="text-xs text-slate-600 mb-1">Confidence levels</div>
@@ -416,6 +405,23 @@ export default function Page() {
                     <NumInput label="Online units (weekly)" val={inputs.onlineUnits} set={(n) => setInputs((s) => ({ ...s, onlineUnits: Math.max(0, n) }))} />
                     <NumInput label="Average hourly rate (AHR)" val={inputs.hourlyRate} step={0.5} set={(n) => setInputs((s) => ({ ...s, hourlyRate: Math.max(0, n) }))} />
                     <NumInput label="Stores (network)" val={inputs.stores} set={(n) => setInputs((s) => ({ ...s, stores: Math.max(1, n) }))} />
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3 space-y-3">
+                    <div className="text-xs uppercase tracking-wide text-slate-500">Issue scenarios</div>
+                    <div className="grid md:grid-cols-2 gap-3">
+                      {ISSUES.map((it) => (
+                        <div key={it.id} className="border rounded-xl bg-white/80 px-3 py-2">
+                          <div className="flex items-center justify-between">
+                            <div className="text-sm font-medium text-slate-800">{it.name}</div>
+                            <Switch checked={!!issues[it.id]} onCheckedChange={(v) => setIssues((s) => ({ ...s, [it.id]: v }))} />
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-1">{Object.entries(it.impact).map(([pk, v]) => {
+                            const pct = Math.round((v || 0) * 100); const up = pct > 0; const color = up ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-rose-50 text-rose-700 border-rose-200";
+                            return (<span key={pk} className={`text-[11px] px-2 py-0.5 rounded border ${color}`}>{PROC_LABEL(pk as ProcessKey)} {up ? "+" : ""}{pct}%</span>);
+                          })}</div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
                 <CategoryControls
