@@ -357,14 +357,15 @@ export default function Page() {
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="flex items-center gap-3"><Factory className="w-6 h-6 text-slate-700" /><h1 className="text-xl font-semibold">Kmart Store Operating Model</h1></div>
 
-        <div className="grid lg:grid-cols-3 gap-4">
-          <div className="grid md:grid-cols-4 gap-4 lg:col-span-2">
-            <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-sky-600 via-sky-500 to-sky-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Total Current Hours</div><div className="text-3xl font-semibold">{fmt(Math.round(totals.curHours))}</div><div className="opacity-90 text-xs mt-1">Productivity: {fmt(curProd, 2)} ct/hr</div></CardContent></Card>
-            <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-emerald-600 via-emerald-500 to-emerald-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Total New Model Hours</div><div className="text-3xl font-semibold">{fmt(Math.round(totals.newHours))}</div><div className="opacity-90 text-xs mt-1">Productivity: {fmt(newProd, 2)} ct/hr</div></CardContent></Card>
-            <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-violet-600 via-violet-500 to-violet-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Estimated Benefit (per store)</div><div className="text-3xl font-semibold">{fmt(Math.round(totals.benefit))} hrs</div><div className="opacity-90">≈ A${fmt(Math.round(totals.savings))}/week</div><div className="opacity-90 text-xs mt-1">Prod Δ: {prodDelta >= 0 ? '+' : ''}{fmt(prodDelta, 2)} ct/hr</div></CardContent></Card>
-            <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-rose-600 via-rose-500 to-rose-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">{`Network Benefit (${inputs.stores} stores)`}</div><div className="text-3xl font-semibold">{fmt(Math.round(totals.benefit * inputs.stores))} hrs</div><div className="opacity-90">≈ A${fmt(Math.round(totals.savings * inputs.stores))}/week</div><div className="opacity-90 text-xs mt-1">Prod Δ: {prodDelta >= 0 ? '+' : ''}{fmt(prodDelta, 2)} ct/hr</div></CardContent></Card>
-          </div>
-          <Card className="shadow-sm lg:col-span-1"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium">Net savings composition (by process)</div><SavingsDonut deltas={deltaRows} net={totals.benefit} /></CardContent></Card>
+        <div className="grid md:grid-cols-4 gap-4">
+          <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-sky-600 via-sky-500 to-sky-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Total Current Hours</div><div className="text-3xl font-semibold">{fmt(Math.round(totals.curHours))}</div><div className="opacity-90 text-xs mt-1">Productivity: {fmt(curProd, 2)} ct/hr</div></CardContent></Card>
+          <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-emerald-600 via-emerald-500 to-emerald-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Total New Model Hours</div><div className="text-3xl font-semibold">{fmt(Math.round(totals.newHours))}</div><div className="opacity-90 text-xs mt-1">Productivity: {fmt(newProd, 2)} ct/hr</div></CardContent></Card>
+          <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-violet-600 via-violet-500 to-violet-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">Estimated Benefit (per store)</div><div className="text-3xl font-semibold">{fmt(Math.round(totals.benefit))} hrs</div><div className="opacity-90">≈ A${fmt(Math.round(totals.savings))}/week</div><div className="opacity-90 text-xs mt-1">Prod Δ: {prodDelta >= 0 ? '+' : ''}{fmt(prodDelta, 2)} ct/hr</div></CardContent></Card>
+          <Card className="overflow-hidden border-0 text-white bg-gradient-to-br from-rose-600 via-rose-500 to-rose-400"><CardContent className="p-4"><div className="text-xs uppercase opacity-90">{`Network Benefit (${inputs.stores} stores)`}</div><div className="text-3xl font-semibold">{fmt(Math.round(totals.benefit * inputs.stores))} hrs</div><div className="opacity-90">≈ A${fmt(Math.round(totals.savings * inputs.stores))}/week</div><div className="opacity-90 text-xs mt-1">Prod Δ: {prodDelta >= 0 ? '+' : ''}{fmt(prodDelta, 2)} ct/hr</div></CardContent></Card>
+        </div>
+        <div className="grid lg:grid-cols-2 gap-4">
+          <Card className="shadow-sm"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium">Net savings composition (by process)</div><SavingsDonut deltas={deltaRows} net={totals.benefit} /></CardContent></Card>
+          <Card className="shadow-sm"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium flex items-center justify-between">Process rate comparison<span className="text-xs text-slate-500">Rate / 1000 units</span></div><RateCompareChart currentCfg={currentCfg} newCfg={newCfg} /></CardContent></Card>
         </div>
 
         <Tabs defaultValue="overview">
@@ -466,11 +467,11 @@ export default function Page() {
             </CardContent></Card>
             <Card className="shadow-sm"><CardContent className="p-4 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-sm font-medium">Per-process parameters (Current)</div><Button size="sm" variant="outline" onClick={deriveRatesFromHours}>Auto-calc rates</Button></div>
-              <ProcTable cfg={currentCfg} setCfg={setCurrentCfg} sheetHours={sheetHours} />
+              <ProcTable cfg={currentCfg} setCfg={setCurrentCfg} sheetHours={sheetHours} workload={totals.curUnits} hoursMap={totals.curByProc} />
             </CardContent></Card>
             <Card className="shadow-sm"><CardContent className="p-4 space-y-4">
               <div className="flex items-center justify-between gap-2"><div className="text-sm font-medium">Per-process parameters (New)</div><div className="text-xs text-slate-500">Shows % vs current</div></div>
-              <ProcTable cfg={newCfg} setCfg={setNewCfg} sheetHours={sheetHours} compareRates={currentCfg} />
+              <ProcTable cfg={newCfg} setCfg={setNewCfg} sheetHours={sheetHours} compareRates={currentCfg} workload={totals.curUnits} hoursMap={totals.newByProc} />
             </CardContent></Card>
           </TabsContent>
           <TabsContent value="lean" className="space-y-6">
@@ -518,7 +519,14 @@ export default function Page() {
   );
 }
 
-function ProcTable({ cfg, setCfg, sheetHours, compareRates }: { cfg: Record<ProcessKey, ProcCfg>; setCfg: React.Dispatch<React.SetStateAction<Record<ProcessKey, ProcCfg>>>; sheetHours: Record<ProcessKey, number> | null; compareRates?: Record<ProcessKey, ProcCfg>; }) {
+function ProcTable({ cfg, setCfg, sheetHours, compareRates, workload, hoursMap }: {
+  cfg: Record<ProcessKey, ProcCfg>;
+  setCfg: React.Dispatch<React.SetStateAction<Record<ProcessKey, ProcCfg>>>;
+  sheetHours: Record<ProcessKey, number> | null;
+  compareRates?: Record<ProcessKey, ProcCfg>;
+  workload?: Record<ProcessKey, number>;
+  hoursMap?: Record<ProcessKey, number>;
+}) {
   return (
     <div className="grid md:grid-cols-2 gap-4">
       {PROCS.map((p) => (
@@ -542,6 +550,18 @@ function ProcTable({ cfg, setCfg, sheetHours, compareRates }: { cfg: Record<Proc
             </div>
             <NumInput label="Custom Hours" val={cfg[p].roster} set={(n) => setCfg((s) => ({ ...s, [p]: { ...s[p], roster: Math.max(0, n) } }))} />
           </div>
+          {workload && (
+            <div className="text-[11px] text-slate-600 flex items-center justify-between">
+              <span>Workload input</span>
+              <span>{fmt(workload[p] || 0)} {cfg[p].unit === "online" ? "units" : "ct"}/wk</span>
+            </div>
+          )}
+          {hoursMap && (
+            <div className="text-[11px] text-slate-600 flex items-center justify-between">
+              <span>Hours required</span>
+              <span>{fmt(hoursMap[p] || 0)} hrs</span>
+            </div>
+          )}
           {sheetHours?.[p] != null && (
             <div className="text-[11px] text-slate-600">Source: Excel (Forecast Roster Hours)
               <span className={`ml-2 px-1.5 py-0.5 rounded border ${!cfg[p].useRoster ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-slate-100 text-slate-600 border-slate-200"}`}>{!cfg[p].useRoster ? "Active" : "Inactive (Custom set)"}</span>
@@ -755,6 +775,50 @@ function SankeySimple({ cartons, chCartons, nvat, cfg, flowMode: _flowMode, proc
       <div className="flex items-center justify-end gap-4 text-xs text-slate-600 mt-1">
         <div className="flex items-center gap-2"><span className="w-3 h-3 rounded" style={{ background: "#ef4444" }} /> NVAT flows</div>
       </div>
+    </div>
+  );
+}
+
+function RateCompareChart({ currentCfg, newCfg }: { currentCfg: Record<ProcessKey, ProcCfg>; newCfg: Record<ProcessKey, ProcCfg> }) {
+  const rows = PROCS.filter((p) => p !== "Backfill").map((p) => ({
+    key: p,
+    name: PROC_LABEL(p),
+    current: currentCfg[p]?.rate ?? 0,
+    next: newCfg[p]?.rate ?? 0,
+  }));
+  const maxRate = Math.max(1, ...rows.map((r) => Math.max(r.current, r.next)));
+  return (
+    <div className="space-y-3">
+      {rows.map((r) => {
+        const curW = Math.max(4, (Math.max(0, r.current) / maxRate) * 100);
+        const newW = Math.max(4, (Math.max(0, r.next) / maxRate) * 100);
+        const diff = r.current > 0 ? ((r.current - r.next) / r.current) * 100 : 0;
+        const diffColor = diff >= 0 ? "text-emerald-600" : "text-rose-600";
+        return (
+          <div key={r.key} className="space-y-1">
+            <div className="flex items-center justify-between text-xs text-slate-600">
+              <span>{r.name}</span>
+              <span className={diffColor}>{diff >= 0 ? "+" : ""}{fmt(diff, 1)}%</span>
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-[11px] text-slate-600">
+                <span className="w-12">Current</span>
+                <div className="flex-1 h-2 rounded bg-slate-200 relative overflow-hidden">
+                  <div className="absolute inset-y-0 left-0 bg-sky-500" style={{ width: `${curW}%` }} />
+                </div>
+                <span>{fmt(r.current, 1)}</span>
+              </div>
+              <div className="flex items-center gap-2 text-[11px] text-slate-600">
+                <span className="w-12">New</span>
+                <div className="flex-1 h-2 rounded bg-slate-200 relative overflow-hidden">
+                  <div className="absolute inset-y-0 left-0 bg-emerald-500" style={{ width: `${newW}%` }} />
+                </div>
+                <span>{fmt(r.next, 1)}</span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
