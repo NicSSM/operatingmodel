@@ -14,6 +14,22 @@ import { Factory } from "lucide-react";
 type Unit = "cartons" | "online";
 type ProcessKey = "Decant" | "Loadfill" | "Packaway" | "Digital" | "Online" | "Backfill";
 type ProcCfg = { unit: Unit; useRoster: boolean; rate: number; roster: number };
+type ProfileData = {
+  inputs: typeof DEFAULT_INPUTS;
+  split: Record<CatKey, number>;
+  issues: Record<string, boolean>;
+  mitigation: number;
+  currentCfg: Record<ProcessKey, ProcCfg>;
+  newCfg: Record<ProcessKey, ProcCfg>;
+  sheetHours: Record<ProcessKey, number> | null;
+  nvatCur: { bounce: number; lf2d: number };
+  nvatNew: { bounce: number; lf2d: number };
+  vaCur: Record<ProcessKey, number>;
+  vaNew: Record<ProcessKey, number>;
+  waitCur: Record<ProcessKey, number>;
+  waitNew: Record<ProcessKey, number>;
+};
+type ModelProfile = { id: string; name: string; savedAt: number; data: ProfileData };
 
 type Issue = { id: string; name: string; impact: Partial<Record<ProcessKey, number>> };
 const ISSUES: Issue[] = [
@@ -104,6 +120,13 @@ const ZERO_WAIT: Record<ProcessKey, number> = {
   Online: 0,
   Backfill: 0,
 };
+const PROFILE_STORAGE_KEY = "kmart_profiles_v1";
+const cloneCfg = (cfg: Record<ProcessKey, ProcCfg>): Record<ProcessKey, ProcCfg> =>
+  PROCS.reduce((acc, p) => {
+    acc[p] = { ...cfg[p] };
+    return acc;
+  }, {} as Record<ProcessKey, ProcCfg>);
+const makeProfileId = () => Math.random().toString(36).slice(2, 10);
 
 // Utils
 const fmt = (n: unknown, d = 0) => {
@@ -259,6 +282,10 @@ export default function Page() {
   const [vaNew, setVaNew] = useState<Record<ProcessKey, number>>(DEFAULT_VA);
   const [waitCur, setWaitCur] = useState<Record<ProcessKey, number>>(ZERO_WAIT);
   const [waitNew, setWaitNew] = useState<Record<ProcessKey, number>>(ZERO_WAIT);
+  const [profiles, setProfiles] = useState<ModelProfile[]>([]);
+  const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
+  const [profileName, setProfileName] = useState("");
+  const [profileStatus, setProfileStatus] = useState("");
 
   useEffect(() => {
     setNvatCur((s) => ({ ...s, bounce: issues["non_dem"] ? 0.3 : 0.2, lf2d: issues["new_lines"] ? 0.25 : 0.15 }));
@@ -316,6 +343,123 @@ export default function Page() {
     { label: "Expected", m: 1.0 },
     { label: "Stretch", m: 1.2 },
   ];
+  const applyLoadfillNvat = (
+    vaMap: Record<ProcessKey, number>,
+    nvat: { bounce: number; lf2d: number }
+  ) => {
+    const base = clamp(vaMap.Loadfill ?? DEFAULT_VA.Loadfill, 0, 1);
+    const penalty = clamp((nvat.bounce || 0) + (nvat.lf2d || 0), 0, 0.9);
+    const adjusted = clamp(base - penalty, 0, 1);
+    if (adjusted === base) return vaMap;
+    return { ...vaMap, Loadfill: adjusted };
+  };
+  const vaDisplayCur = applyLoadfillNvat(vaCur, nvatCur);
+  const vaDisplayNew = applyLoadfillNvat(vaNew, nvatNew);
+  const persistProfiles = (next: ModelProfile[]) => {
+    setProfiles(next);
+    if (typeof window !== "undefined") {
+      localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(next));
+    }
+  };
+  const captureProfileData = (): ProfileData => ({
+    inputs: { ...inputs },
+    split: { ...split },
+    issues: { ...issues },
+    mitigation,
+    currentCfg: cloneCfg(currentCfg),
+    newCfg: cloneCfg(newCfg),
+    sheetHours: sheetHours ? { ...sheetHours } : null,
+    nvatCur: { ...nvatCur },
+    nvatNew: { ...nvatNew },
+    vaCur: { ...vaCur },
+    vaNew: { ...vaNew },
+    waitCur: { ...waitCur },
+    waitNew: { ...waitNew },
+  });
+  const applyProfileData = (data: ProfileData) => {
+    setInputs({ ...data.inputs });
+    setSplit({ ...data.split });
+    setIssues({ ...data.issues });
+    setMitigation(data.mitigation);
+    setCurrentCfg(cloneCfg(data.currentCfg));
+    setNewCfg(cloneCfg(data.newCfg));
+    setSheetHours(data.sheetHours ? { ...data.sheetHours } : null);
+    setNvatCur({ ...data.nvatCur });
+    setNvatNew({ ...data.nvatNew });
+    setVaCur({ ...data.vaCur });
+    setVaNew({ ...data.vaNew });
+    setWaitCur({ ...data.waitCur });
+    setWaitNew({ ...data.waitNew });
+  };
+  const handleSaveNewProfile = () => {
+    const name = profileName.trim() || `Profile ${profiles.length + 1}`;
+    const nextProfile: ModelProfile = {
+      id: makeProfileId(),
+      name,
+      savedAt: Date.now(),
+      data: captureProfileData(),
+    };
+    persistProfiles([...profiles, nextProfile]);
+    setActiveProfileId(nextProfile.id);
+    setProfileName(name);
+    setProfileStatus(`Saved "${name}"`);
+  };
+  const handleUpdateProfile = () => {
+    if (!activeProfileId) {
+      setProfileStatus("Select a profile to update");
+      return;
+    }
+    const idx = profiles.findIndex((p) => p.id === activeProfileId);
+    if (idx === -1) {
+      setProfileStatus("Profile not found");
+      return;
+    }
+    const name = profileName.trim() || profiles[idx].name;
+    const updated: ModelProfile = {
+      ...profiles[idx],
+      name,
+      savedAt: Date.now(),
+      data: captureProfileData(),
+    };
+    persistProfiles(profiles.map((p) => (p.id === activeProfileId ? updated : p)));
+    setProfileName(name);
+    setProfileStatus(`Updated "${name}"`);
+  };
+  const handleLoadProfile = () => {
+    if (!activeProfileId) {
+      setProfileStatus("Select a profile to load");
+      return;
+    }
+    const profile = profiles.find((p) => p.id === activeProfileId);
+    if (!profile) {
+      setProfileStatus("Profile not found");
+      return;
+    }
+    applyProfileData(profile.data);
+    setProfileName(profile.name);
+    setProfileStatus(`Loaded "${profile.name}"`);
+  };
+  const handleDeleteProfile = () => {
+    if (!activeProfileId) {
+      setProfileStatus("Select a profile to delete");
+      return;
+    }
+    const profile = profiles.find((p) => p.id === activeProfileId);
+    const next = profiles.filter((p) => p.id !== activeProfileId);
+    persistProfiles(next);
+    const nextSelection = next[0];
+    setActiveProfileId(nextSelection?.id ?? null);
+    setProfileName(nextSelection?.name ?? "");
+    setProfileStatus(profile ? `Deleted "${profile.name}"` : "Profile deleted");
+  };
+  const handleSelectProfile = (id: string) => {
+    const newId = id || null;
+    setActiveProfileId(newId);
+    if (newId) {
+      const profile = profiles.find((p) => p.id === newId);
+      if (profile) setProfileName(profile.name);
+    }
+  };
 
   const deriveRatesFromHours = () => {
     const derivedRates: Record<ProcessKey, number> = {} as Record<ProcessKey, number>;
@@ -623,18 +767,18 @@ export default function Page() {
               <GlowCard accent="slate">
                 <div className="space-y-4">
                   <div className="text-sm font-medium">Value Stream Map</div>
-                  <LeanVSM
-                    curHours={model.curByProc}
-                    newHours={model.newByProc}
-                    curUnits={model.curUnits}
-                    newUnits={model.newUnits}
-                    vaCur={vaCur}
-                    vaNew={vaNew}
-                    waitCur={waitCur}
-                    waitNew={waitNew}
-                    cfgCur={currentCfg}
-                    cfgNew={newCfg}
-                  />
+              <LeanVSM
+                curHours={model.curByProc}
+                newHours={model.newByProc}
+                curUnits={model.curUnits}
+                newUnits={model.newUnits}
+                vaCur={vaDisplayCur}
+                vaNew={vaDisplayNew}
+                waitCur={waitCur}
+                waitNew={waitNew}
+                cfgCur={currentCfg}
+                cfgNew={newCfg}
+              />
                 </div>
               </GlowCard>
             </CardContent></Card>
@@ -672,6 +816,51 @@ export default function Page() {
                 onVaChange={updateVa}
                 onWaitChange={updateWait}
               />
+            </div></GlowCard></CardContent></Card>
+            <Card className="shadow-none border-none bg-transparent"><CardContent className="p-0"><GlowCard accent="emerald"><div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-medium">Scenario profiles</div>
+                  <div className="text-xs text-slate-500">Save, recall, and update model settings</div>
+                </div>
+                {activeProfileId && (
+                  <div className="text-[11px] text-slate-500">Selected: {profiles.find((p) => p.id === activeProfileId)?.name}</div>
+                )}
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">Profile name</Label>
+                  <Input value={profileName} onChange={(e) => setProfileName(e.target.value)} placeholder="e.g. Peak trade" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Saved profiles</Label>
+                  <select
+                    value={activeProfileId ?? ""}
+                    onChange={(e) => handleSelectProfile(e.target.value)}
+                    className="w-full rounded-xl border border-white/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-inner focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                  >
+                    <option value="">None</option>
+                    {profiles.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" onClick={handleSaveNewProfile}>Save as new</Button>
+                <Button size="sm" variant="outline" onClick={handleUpdateProfile} disabled={!activeProfileId}>Update selected</Button>
+                <Button size="sm" variant="outline" onClick={handleLoadProfile} disabled={!activeProfileId}>Load selected</Button>
+                <Button size="sm" variant="destructive" onClick={handleDeleteProfile} disabled={!activeProfileId}>Delete</Button>
+              </div>
+              {profileStatus && <div className="text-xs font-medium text-emerald-600">{profileStatus}</div>}
+              {profiles.length > 0 && (
+                <div className="text-[11px] text-slate-500">
+                  {profiles.length} profile{profiles.length === 1 ? "" : "s"} saved · Last updated{" "}
+                  {new Date(Math.max(...profiles.map((p) => p.savedAt))).toLocaleString()}
+                </div>
+              )}
             </div></GlowCard></CardContent></Card>
           </TabsContent>
         </Tabs>
@@ -1234,31 +1423,37 @@ function VsmControls({
   );
 }
 
+const GLASS_GRADIENT = "from-white via-slate-50 to-slate-100";
 const GLOW_PRESETS = {
   emerald: {
-    gradient: "from-white via-emerald-50 to-slate-50",
-    blobA: "bg-emerald-200/50",
-    blobB: "bg-sky-200/40",
+    gradient: GLASS_GRADIENT,
+    blobA: "bg-emerald-200/40",
+    blobB: "bg-emerald-100/30",
+    ring: "ring-emerald-100/60",
   },
   sky: {
-    gradient: "from-white via-sky-50 to-blue-50",
-    blobA: "bg-sky-200/40",
-    blobB: "bg-cyan-200/40",
+    gradient: GLASS_GRADIENT,
+    blobA: "bg-sky-200/35",
+    blobB: "bg-cyan-200/35",
+    ring: "ring-sky-100/60",
   },
   violet: {
-    gradient: "from-white via-violet-50 to-fuchsia-50",
-    blobA: "bg-violet-200/40",
-    blobB: "bg-pink-200/40",
+    gradient: GLASS_GRADIENT,
+    blobA: "bg-violet-200/35",
+    blobB: "bg-pink-200/35",
+    ring: "ring-violet-100/60",
   },
   amber: {
-    gradient: "from-white via-amber-50 to-orange-50",
-    blobA: "bg-amber-200/40",
-    blobB: "bg-orange-200/40",
+    gradient: GLASS_GRADIENT,
+    blobA: "bg-amber-200/35",
+    blobB: "bg-orange-200/35",
+    ring: "ring-amber-100/60",
   },
   slate: {
-    gradient: "from-white via-slate-50 to-stone-50",
-    blobA: "bg-slate-200/40",
-    blobB: "bg-stone-200/40",
+    gradient: GLASS_GRADIENT,
+    blobA: "bg-slate-200/35",
+    blobB: "bg-stone-200/35",
+    ring: "ring-slate-200/60",
   },
 } as const;
 type GlowAccent = keyof typeof GLOW_PRESETS;
@@ -1266,7 +1461,7 @@ type GlowAccent = keyof typeof GLOW_PRESETS;
 function GlowCard({ children, accent = "emerald" }: { children: React.ReactNode; accent?: GlowAccent }) {
   const preset = GLOW_PRESETS[accent] ?? GLOW_PRESETS.emerald;
   return (
-    <div className={`relative overflow-hidden rounded-3xl border border-white/70 bg-gradient-to-br ${preset.gradient} p-5 shadow-xl`}>
+    <div className={`relative overflow-hidden rounded-3xl border border-white/60 ring-1 ${preset.ring ?? "ring-white/40"} bg-gradient-to-br ${preset.gradient} p-5 shadow-xl`}>
       <div className={`pointer-events-none absolute -top-16 -right-12 h-48 w-48 rounded-full ${preset.blobA} blur-3xl animate-pulse`} aria-hidden="true" />
       <div className={`pointer-events-none absolute -bottom-20 -left-12 h-48 w-48 rounded-full ${preset.blobB} blur-3xl animate-pulse`} aria-hidden="true" />
       <div className="relative">{children}</div>
@@ -1427,3 +1622,25 @@ function HeroStat({ label, value, helper, color }: { label: string; value: strin
     </div>
   );
 }
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = localStorage.getItem(PROFILE_STORAGE_KEY);
+      if (!raw) return;
+      const stored = JSON.parse(raw) as ModelProfile[];
+      if (Array.isArray(stored)) {
+        setProfiles(stored);
+        if (stored.length) {
+          setActiveProfileId(stored[0].id);
+          setProfileName(stored[0].name);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load profiles", err);
+    }
+  }, []);
+  useEffect(() => {
+    if (!profileStatus) return;
+    const t = setTimeout(() => setProfileStatus(""), 2500);
+    return () => clearTimeout(t);
+  }, [profileStatus]);
