@@ -255,10 +255,10 @@ export default function Page() {
   const [nvatCur, setNvatCur] = useState({ bounce: 0.2, lf2d: 0.15 });
 
   // Lean / VSM parameters (Value-Add %, Wait hours per week)
-  const [vaCur] = useState<Record<ProcessKey, number>>(DEFAULT_VA);
-  const [vaNew] = useState<Record<ProcessKey, number>>(DEFAULT_VA);
-  const [waitCur] = useState<Record<ProcessKey, number>>(ZERO_WAIT);
-  const [waitNew] = useState<Record<ProcessKey, number>>(ZERO_WAIT);
+  const [vaCur, setVaCur] = useState<Record<ProcessKey, number>>(DEFAULT_VA);
+  const [vaNew, setVaNew] = useState<Record<ProcessKey, number>>(DEFAULT_VA);
+  const [waitCur, setWaitCur] = useState<Record<ProcessKey, number>>(ZERO_WAIT);
+  const [waitNew, setWaitNew] = useState<Record<ProcessKey, number>>(ZERO_WAIT);
 
   useEffect(() => {
     setNvatCur((s) => ({ ...s, bounce: issues["non_dem"] ? 0.3 : 0.2, lf2d: issues["new_lines"] ? 0.25 : 0.15 }));
@@ -268,6 +268,23 @@ export default function Page() {
     const next = clamp(value, 0, 0.6);
     if (mode === "current") setNvatCur((s) => ({ ...s, [key]: next }));
     else setNvatNew((s) => ({ ...s, [key]: next }));
+  };
+  const updateVa = (mode: "current" | "new", proc: ProcessKey, value: number) => {
+    const pct = clamp(value, 0, 1);
+    if (mode === "current") setVaCur((s) => ({ ...s, [proc]: pct }));
+    else setVaNew((s) => ({ ...s, [proc]: pct }));
+  };
+  const updateWait = (mode: "current" | "new", proc: ProcessKey, value: number) => {
+    const num = Number.isFinite(value) ? value : 0;
+    const hrs = Math.max(0, num);
+    if (mode === "current") setWaitCur((s) => ({ ...s, [proc]: hrs }));
+    else setWaitNew((s) => ({ ...s, [proc]: hrs }));
+  };
+  const resetVsm = () => {
+    setVaCur({ ...DEFAULT_VA });
+    setVaNew({ ...DEFAULT_VA });
+    setWaitCur({ ...ZERO_WAIT });
+    setWaitNew({ ...ZERO_WAIT });
   };
 
   const model = useMemo(
@@ -291,7 +308,9 @@ export default function Page() {
   const perStoreWeekly = Math.round(model.savings);
   const perStoreHours = Math.round(model.benefit);
   const networkWeekly = Math.round(model.savings * inputs.stores);
-  const savingsProgress = clamp(pctSaved / 100, 0, 1);
+  const networkHours = Math.round(model.benefit * inputs.stores);
+  const displayPct = Math.max(0, pctSaved);
+  const savingsProgress = clamp(displayPct / 100, 0, 1);
   const confidenceLevels = [
     { label: "Conservative", m: 0.8 },
     { label: "Expected", m: 1.0 },
@@ -374,45 +393,69 @@ export default function Page() {
         </div>
         <Card className="shadow-xl border-none bg-transparent">
           <CardContent className="p-0">
-            <div className="rounded-3xl border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-sky-50 p-5 shadow-xl space-y-5">
-              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-emerald-700">
-                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Network</span>
-                    <span>Annualised benefit</span>
-                  </div>
-                  <div className="mt-2 text-4xl font-semibold text-slate-900">A${fmt(networkAnnual)}</div>
-                  <div className="text-sm text-slate-600 mt-1">Weekly impact: A${fmt(networkWeekly)} · {pctSaved}% of current hours released</div>
-                </div>
-                <div className="bg-white/85 rounded-2xl p-4 shadow-inner text-right border border-white/60">
-                  <div className="text-[11px] uppercase tracking-wide text-slate-500">Per store weekly</div>
-                  <div className="text-2xl font-semibold text-slate-900">A${fmt(perStoreWeekly)}</div>
-                  <div className="text-sm text-slate-500">{fmt(perStoreHours)} hrs saved</div>
-                </div>
-              </div>
-              <div>
-                <div className="flex items-center justify-between text-xs text-slate-600">
-                  <span>Hours saved across network</span>
-                  <span>{pctSaved}%</span>
-                </div>
-                <div className="mt-2 h-2 rounded-full bg-white/60">
-                  <div
-                    className="h-2 rounded-full bg-emerald-500 shadow"
-                    style={{ width: `${Math.round(savingsProgress * 100)}%` }}
-                  />
-                </div>
-              </div>
-              <div className="grid sm:grid-cols-3 gap-3 text-sm">
-                {confidenceLevels.map((b) => {
-                  const delta = b.m === 1 ? "Base case" : b.m < 1 ? "-20% downside" : "+20% upside";
-                  return (
-                    <div key={b.label} className="rounded-2xl border border-white/60 bg-white/80 p-3 shadow-sm">
-                      <div className="text-[11px] uppercase tracking-wide text-slate-500">{b.label}</div>
-                      <div className="text-lg font-semibold text-slate-900">A${fmt(Math.round(networkAnnual * b.m))}/yr</div>
-                      <div className="text-[11px] text-slate-500 mt-1">{delta}</div>
+            <div className="relative overflow-hidden rounded-3xl border border-emerald-100 bg-gradient-to-br from-white via-emerald-50 to-slate-50 p-5 shadow-2xl">
+              <div className="pointer-events-none absolute -top-16 -right-12 h-48 w-48 rounded-full bg-emerald-200/60 blur-3xl animate-pulse" aria-hidden="true" />
+              <div className="pointer-events-none absolute -bottom-20 -left-10 h-56 w-56 rounded-full bg-sky-200/50 blur-3xl animate-pulse" aria-hidden="true" />
+              <div className="relative space-y-6">
+                <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                  <div className="space-y-3">
+                    <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700 shadow-sm">
+                      <span className="relative flex h-2 w-2">
+                        <span className="absolute inset-0 rounded-full bg-emerald-400 opacity-60 animate-ping" aria-hidden="true" />
+                        <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-600" />
+                      </span>
+                      <span>Network Annualised Benefit</span>
                     </div>
-                  );
-                })}
+                    <div className="text-4xl font-semibold leading-tight text-slate-900">${fmt(networkAnnual)}</div>
+                    <p className="text-sm text-slate-600">Annualised savings across {inputs.stores} stores.</p>
+                  </div>
+                  <div className="bg-white/90 rounded-2xl p-4 shadow-inner border border-white/60 text-right space-y-1">
+                    <div className="text-[11px] uppercase tracking-wide text-slate-500">Per store weekly</div>
+                    <div className="text-2xl font-semibold text-slate-900">${fmt(perStoreWeekly)}</div>
+                    <div className="text-xs text-slate-500">{fmt(perStoreHours)} hrs saved</div>
+                  </div>
+                </div>
+                <div className="grid sm:grid-cols-3 gap-3 text-sm">
+                  <div className="rounded-2xl border border-white/70 bg-white/85 p-3 shadow-sm transition duration-300 hover:-translate-y-0.5">
+                    <div className="text-[11px] uppercase tracking-wide text-slate-500">Weekly impact</div>
+                    <div className="text-lg font-semibold text-slate-900">${fmt(networkWeekly)}</div>
+                    <div className="text-[11px] text-slate-500">Network run-rate</div>
+                  </div>
+                  <div className="rounded-2xl border border-white/70 bg-white/85 p-3 shadow-sm transition duration-300 hover:-translate-y-0.5">
+                    <div className="text-[11px] uppercase tracking-wide text-slate-500">Hours released</div>
+                    <div className="text-lg font-semibold text-slate-900">{fmt(networkHours)} hrs</div>
+                    <div className="text-[11px] text-slate-500">Per week across network</div>
+                  </div>
+                  <div className="rounded-2xl border border-white/70 bg-white/85 p-3 shadow-sm transition duration-300 hover:-translate-y-0.5">
+                    <div className="text-[11px] uppercase tracking-wide text-slate-500">Savings momentum</div>
+                    <div className="text-lg font-semibold text-slate-900">{Math.round(displayPct)}%</div>
+                    <div className="text-[11px] text-slate-500">Of current hours</div>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs text-slate-600">
+                    <span>Momentum tracker</span>
+                    <span>{Math.round(displayPct)}%</span>
+                  </div>
+                  <div className="relative h-3 rounded-full bg-white/60 overflow-hidden">
+                    <div
+                      className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-emerald-400 via-emerald-500 to-sky-500 shadow-lg transition-all duration-700"
+                      style={{ width: `${Math.round(savingsProgress * 100)}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="grid sm:grid-cols-3 gap-3 text-sm">
+                  {confidenceLevels.map((b) => {
+                    const delta = b.m === 1 ? "Base case" : b.m < 1 ? "-20% downside" : "+20% upside";
+                    return (
+                      <div key={b.label} className="rounded-2xl border border-white/60 bg-white/85 p-3 shadow-sm transition duration-300 hover:-translate-y-0.5">
+                        <div className="text-[11px] uppercase tracking-wide text-slate-500">{b.label}</div>
+                        <div className="text-lg font-semibold text-slate-900">${fmt(Math.round(networkAnnual * b.m))}/yr</div>
+                        <div className="text-[11px] text-slate-500 mt-1">{delta}</div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           </CardContent>
@@ -573,6 +616,23 @@ export default function Page() {
                 <ProcTable cfg={newCfg} setCfg={setNewCfg} sheetHours={sheetHours} compareRates={currentCfg} workload={model.newUnits} hoursMap={model.newByProc} />
               </CardContent></Card>
             </div>
+            <Card className="shadow-lg border border-white/70 bg-gradient-to-br from-white via-slate-50 to-slate-100"><CardContent className="p-4 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-medium">Value Stream Map parameters</div>
+                  <div className="text-xs text-slate-500">Tune VA% and wait hours per process</div>
+                </div>
+                <Button size="sm" variant="outline" onClick={resetVsm}>Reset defaults</Button>
+              </div>
+              <VsmControls
+                vaCur={vaCur}
+                vaNew={vaNew}
+                waitCur={waitCur}
+                waitNew={waitNew}
+                onVaChange={updateVa}
+                onWaitChange={updateWait}
+              />
+            </CardContent></Card>
           </TabsContent>
         </Tabs>
       </div>
@@ -594,10 +654,12 @@ function ProcTable({ cfg, setCfg, sheetHours, compareRates, workload, hoursMap }
         <div key={p} className="border rounded-2xl bg-white/85 shadow-sm p-3 space-y-2">
           <div className="text-sm font-medium flex items-center justify-between"><span>{PROC_LABEL(p)}</span><span className="text-[11px] text-slate-500">{sheetHours?.[p] != null ? `Forecast: ${fmt(sheetHours[p])} hrs` : "Forecast: —"}</span></div>
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1"><Label className="text-xs">Unit</Label><div className="flex gap-2 text-xs">{(["cartons", "online"] as Unit[]).map((u) => (
-              <Button key={u} variant={cfg[p].unit === u ? "default" : "outline"} className="h-7 px-2" onClick={() => setCfg((s) => ({ ...s, [p]: { ...s[p], unit: u } }))}>{u}</Button>
-            ))}</div></div>
-            <div className="space-y-1"><Label className="text-xs">Set Custom</Label><div><Switch checked={cfg[p].useRoster} onCheckedChange={(v) => setCfg((s) => ({ ...s, [p]: { ...s[p], useRoster: v } }))} /></div></div>
+            <div className="space-y-1">
+              <Label className="text-xs">Unit (fixed)</Label>
+              <div className="text-sm font-semibold text-slate-800 capitalize">{cfg[p].unit}</div>
+              <div className="text-[11px] text-slate-500">Defined by process</div>
+            </div>
+            <div className="space-y-1"><Label className="text-xs">Override with roster</Label><div><Switch checked={cfg[p].useRoster} onCheckedChange={(v) => setCfg((s) => ({ ...s, [p]: { ...s[p], useRoster: v } }))} /></div></div>
             <div className="space-y-1">
               <NumInput label="Rate / 1000" val={cfg[p].rate} set={(n) => setCfg((s) => ({ ...s, [p]: { ...s[p], rate: Math.max(0, n) } }))} />
               {compareRates?.[p]?.rate != null ? (() => {
@@ -1076,6 +1138,54 @@ function CategoryControls({
   );
 }
 
+function VsmControls({
+  vaCur,
+  vaNew,
+  waitCur,
+  waitNew,
+  onVaChange,
+  onWaitChange,
+}: {
+  vaCur: Record<ProcessKey, number>;
+  vaNew: Record<ProcessKey, number>;
+  waitCur: Record<ProcessKey, number>;
+  waitNew: Record<ProcessKey, number>;
+  onVaChange: (mode: "current" | "new", proc: ProcessKey, value: number) => void;
+  onWaitChange: (mode: "current" | "new", proc: ProcessKey, value: number) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      {PROCS.map((p) => {
+        const vaCurPct = Math.round((vaCur[p] ?? 0) * 100);
+        const vaNewPct = Math.round((vaNew[p] ?? 0) * 100);
+        return (
+          <div key={p} className="border border-white/80 rounded-2xl bg-white/85 p-3 shadow-sm space-y-3">
+            <div className="text-sm font-semibold text-slate-800">{PROC_LABEL(p)}</div>
+            <div className="grid md:grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs text-slate-500">
+                  <span>Value-add % (Current)</span>
+                  <span>{vaCurPct}%</span>
+                </div>
+                <Slider value={[vaCurPct]} min={0} max={100} step={1} onValueChange={(v) => onVaChange("current", p, clamp((v[0] || 0) / 100))} />
+                <div className="flex items-center justify-between text-xs text-slate-500 mt-2">
+                  <span>Value-add % (Target)</span>
+                  <span>{vaNewPct}%</span>
+                </div>
+                <Slider value={[vaNewPct]} min={0} max={100} step={1} onValueChange={(v) => onVaChange("new", p, clamp((v[0] || 0) / 100))} />
+              </div>
+              <div className="space-y-3">
+                <NumInput label="Wait hours (Current)" val={waitCur[p] || 0} step={0.5} set={(n) => onWaitChange("current", p, n)} />
+                <NumInput label="Wait hours (Target)" val={waitNew[p] || 0} step={0.5} set={(n) => onWaitChange("new", p, n)} />
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function LeanVSM({ curHours, newHours, curUnits, newUnits, vaCur, vaNew, waitCur, waitNew, cfgCur, cfgNew }: {
   curHours: Record<ProcessKey, number>;
   newHours: Record<ProcessKey, number>;
@@ -1150,10 +1260,14 @@ function LeanVSM({ curHours, newHours, curUnits, newUnits, vaCur, vaNew, waitCur
         {rows.map((r, rowIdx) => {
           const y = pad + rowIdx * rowGap;
           let x = pad;
+          const activeProcs = PROCS.filter((p) => Math.max(0, r.hours[p] || 0) > 0);
           return (
             <g key={r.label}>
               <text x={pad} y={y - 10} fontSize={12} fill="#334155">{r.label}</text>
-              {PROCS.map((p) => {
+              {activeProcs.length === 0 && (
+                <text x={pad} y={y + 20} fontSize={12} fill="#94a3b8">No active processes</text>
+              )}
+              {activeProcs.map((p) => {
                 const h = Math.max(0, r.hours[p] || 0);
                 const vaf = clamp(r.va[p] ?? 0.7, 0, 1);
                 const vaH = h * vaf, nvaH = h * (1 - vaf), wH = Math.max(0, r.wait[p] || 0);
@@ -1169,7 +1283,7 @@ function LeanVSM({ curHours, newHours, curUnits, newUnits, vaCur, vaNew, waitCur
                 const centerX = xStart + (w1 + w2 + w3) / 2;
                 const hoursLabel = `${PROC_LABEL(p)} · ${fmt(Math.round(h))} hrs/wk`;
                 const detailLabel = `${fmt(u)} ${unit}/wk @ ${fmt(rate)} hrs/1000${unit}`;
-                const labelWidth = Math.max(1, w1 + w2 + w3);
+                const labelWidth = Math.max(100, w1 + w2 + w3);
                 const labelX = xStart;
                 const labelY = yBox + Hbox + labelSpacing;
                 const out = (
@@ -1192,7 +1306,8 @@ function LeanVSM({ curHours, newHours, curUnits, newUnits, vaCur, vaNew, waitCur
               })}
               <g>
                 {(() => {
-                  const summaryY = y + boxH + labelSpacing + labelHeight + 28;
+                  const baseY = labelSpacing + labelHeight + 28;
+                  const summaryY = y + (activeProcs.length ? boxH + baseY : 32);
                   return (
                     <>
                       <text x={pad} y={summaryY} fontSize={11} fill="#334155">Lead time</text>
