@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -34,8 +34,8 @@ type ModelProfile = { id: string; name: string; savedAt: number; data: ProfileDa
 type Issue = { id: string; name: string; impact: Partial<Record<ProcessKey, number>> };
 const ISSUES: Issue[] = [
   { id: "loadfill_incomplete", name: "Loadfill Incomplete", impact: { Loadfill: 0.1 } },
-  { id: "non_dem", name: "High Non-demand Mix", impact: { Loadfill: -0.1, Packaway: 0.05 } },
-  { id: "new_lines", name: "High New Line Mix", impact: { Loadfill: -0.1, Digital: 0.1 } },
+  { id: "non_dem", name: "High Non-demand Channel", impact: { Loadfill: -0.1, Packaway: 0.05 } },
+  { id: "new_lines", name: "High New Line Channel", impact: { Loadfill: -0.1, Digital: 0.1 } },
 ];
 
 const PROCS: ProcessKey[] = ["Decant", "Loadfill", "Packaway", "Digital", "Online", "Backfill"];
@@ -127,6 +127,32 @@ const cloneCfg = (cfg: Record<ProcessKey, ProcCfg>): Record<ProcessKey, ProcCfg>
     return acc;
   }, {} as Record<ProcessKey, ProcCfg>);
 const makeProfileId = () => Math.random().toString(36).slice(2, 10);
+const DEFAULT_ISSUES_STATE = Object.fromEntries(ISSUES.map((i) => [i.id, false])) as Record<string, boolean>;
+const DEFAULT_PROFILE_ID = "default_profile";
+const DEFAULT_PROFILE_NAME = "Default";
+const buildDefaultProfileData = (): ProfileData => ({
+  inputs: { ...DEFAULT_INPUTS },
+  split: { ...DEFAULT_SPLIT },
+  issues: { ...DEFAULT_ISSUES_STATE },
+  mitigation: 0.5,
+  currentCfg: cloneCfg(DEFAULT_CURRENT),
+  newCfg: cloneCfg(DEFAULT_NEW),
+  sheetHours: null,
+  nvatCur: { bounce: 0.2, lf2d: 0.15 },
+  nvatNew: { bounce: 0.05, lf2d: 0 },
+  vaCur: { ...DEFAULT_VA },
+  vaNew: { ...DEFAULT_VA },
+  waitCur: { ...ZERO_WAIT },
+  waitNew: { ...ZERO_WAIT },
+});
+const createDefaultProfile = (): ModelProfile => ({
+  id: DEFAULT_PROFILE_ID,
+  name: DEFAULT_PROFILE_NAME,
+  savedAt: Date.now(),
+  data: buildDefaultProfileData(),
+});
+const ensureDefaultProfile = (list: ModelProfile[]): ModelProfile[] =>
+  list.some((p) => p.id === DEFAULT_PROFILE_ID) ? list : [createDefaultProfile(), ...list];
 
 // Utils
 const fmt = (n: unknown, d = 0) => {
@@ -245,21 +271,31 @@ function PercentSlider({ label, value, onChange, maxLeft }: { label: string; val
   const base = label.replace(" %", "");
   const color = NODE_COLORS[base] || "#94a3b8";
   return (
-    <div className="space-y-2 p-2 rounded-lg border bg-white">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }} />
-          <div className="text-sm">{base}</div>
+    <div className="group space-y-3 rounded-2xl border border-white/60 bg-white/85 p-3 shadow-sm ring-1 ring-slate-100/60 transition-all duration-300 hover:-translate-y-0.5">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="relative flex h-3 w-3">
+            <span className="absolute inset-0 rounded-full opacity-60 blur-[2px]" style={{ backgroundColor: color }} />
+            <span className="relative inline-flex h-3 w-3 rounded-full border border-white" style={{ backgroundColor: color }} />
+          </span>
+          <div>
+            <div className="text-sm font-semibold text-slate-800">{base}</div>
+            <div className="text-[11px] text-slate-500">Cap {maxPct}%</div>
+          </div>
         </div>
         <div className="flex items-center gap-2">
-          <Input className="h-7 w-16 text-right" type="number" value={String(pct)} onChange={(e) => onChange(clamp(Number(e.target.value || 0) / 100, 0, maxPct / 100))} />
+          <Input className="h-8 w-20 rounded-2xl border-white/70 bg-white/80 text-right text-sm shadow-inner" type="number" value={String(pct)} onChange={(e) => onChange(clamp(Number(e.target.value || 0) / 100, 0, maxPct / 100))} />
           <span className="text-xs text-slate-500">%</span>
         </div>
       </div>
-      <Slider value={[pct]} max={maxPct} step={1} onValueChange={(v) => onChange(clamp((v[0] || 0) / 100, 0, maxPct / 100))} />
-      <div className="flex gap-2">
-        <Button variant="outline" className="h-7 px-2" onClick={() => onChange(clamp(value - 0.01, 0, maxPct / 100))}>-1%</Button>
-        <Button variant="outline" className="h-7 px-2" onClick={() => onChange(clamp(value + 0.01, 0, maxPct / 100))}>+1%</Button>
+      <div className="px-1">
+        <Slider value={[pct]} max={maxPct} step={1} onValueChange={(v) => onChange(clamp((v[0] || 0) / 100, 0, maxPct / 100))} />
+      </div>
+      <div className="flex items-center justify-end text-[11px] text-slate-500">
+        <div className="flex gap-2">
+          <Button variant="outline" className="h-7 rounded-full border-slate-200 px-3" onClick={() => onChange(clamp(value - 0.01, 0, maxPct / 100))}>-1%</Button>
+          <Button variant="outline" className="h-7 rounded-full border-slate-200 px-3" onClick={() => onChange(clamp(value + 0.01, 0, maxPct / 100))}>+1%</Button>
+        </div>
       </div>
     </div>
   );
@@ -268,7 +304,7 @@ function PercentSlider({ label, value, onChange, maxLeft }: { label: string; val
 export default function Page() {
   const [inputs, setInputs] = useState(DEFAULT_INPUTS);
   const [split, setSplit] = useState<Record<CatKey, number>>(DEFAULT_SPLIT);
-  const [issues, setIssues] = useState<Record<string, boolean>>(() => Object.fromEntries(ISSUES.map((i) => [i.id, false])) as Record<string, boolean>);
+  const [issues, setIssues] = useState<Record<string, boolean>>({ ...DEFAULT_ISSUES_STATE });
   const [mitigation, setMitigation] = useState(0.5);
   const [currentCfg, setCurrentCfg] = useState(DEFAULT_CURRENT);
   const [newCfg, setNewCfg] = useState(DEFAULT_NEW);
@@ -282,10 +318,49 @@ export default function Page() {
   const [vaNew, setVaNew] = useState<Record<ProcessKey, number>>(DEFAULT_VA);
   const [waitCur, setWaitCur] = useState<Record<ProcessKey, number>>(ZERO_WAIT);
   const [waitNew, setWaitNew] = useState<Record<ProcessKey, number>>(ZERO_WAIT);
-  const [profiles, setProfiles] = useState<ModelProfile[]>([]);
-  const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
-  const [profileName, setProfileName] = useState("");
+  const [profiles, setProfiles] = useState<ModelProfile[]>(() => ensureDefaultProfile([]));
+  const [activeProfileId, setActiveProfileId] = useState<string | null>(DEFAULT_PROFILE_ID);
+  const [profileName, setProfileName] = useState(DEFAULT_PROFILE_NAME);
   const [profileStatus, setProfileStatus] = useState("");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = localStorage.getItem(PROFILE_STORAGE_KEY);
+      if (!raw) {
+        const seeded = ensureDefaultProfile([]);
+        setProfiles(seeded);
+        const base = seeded[0];
+        if (base) {
+          setActiveProfileId(base.id);
+          setProfileName(base.name);
+          applyProfileData(base.data);
+        }
+        localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(seeded));
+        return;
+      }
+      const parsed = JSON.parse(raw);
+      const stored = Array.isArray(parsed) ? (parsed as ModelProfile[]) : [];
+      const normalized = ensureDefaultProfile(stored);
+      setProfiles(normalized);
+      if (normalized.length) {
+        setActiveProfileId(normalized[0].id);
+        setProfileName(normalized[0].name);
+        applyProfileData(normalized[0].data);
+      }
+      if (!stored.some((p) => p.id === DEFAULT_PROFILE_ID)) {
+        localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(normalized));
+      }
+    } catch (err) {
+      console.error("Failed to load profiles", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!profileStatus) return;
+    const t = setTimeout(() => setProfileStatus(""), 2500);
+    return () => clearTimeout(t);
+  }, [profileStatus]);
 
   useEffect(() => {
     setNvatCur((s) => ({ ...s, bounce: issues["non_dem"] ? 0.3 : 0.2, lf2d: issues["new_lines"] ? 0.25 : 0.15 }));
@@ -330,7 +405,6 @@ export default function Page() {
   const newProd = model.newHours > 0 ? model.cartons / model.newHours : 0;
   const prodDelta = newProd - curProd;
 
-  const pctSaved = model.curHours ? Math.round((model.benefit / model.curHours) * 100) : 0;
   const networkAnnual = Math.round(Math.round(model.savings) * inputs.stores * 52);
   const perStoreWeekly = Math.round(model.savings);
   const perStoreHours = Math.round(model.benefit);
@@ -356,9 +430,10 @@ export default function Page() {
   const vaDisplayCur = applyLoadfillNvat(vaCur, nvatCur);
   const vaDisplayNew = applyLoadfillNvat(vaNew, nvatNew);
   const persistProfiles = (next: ModelProfile[]) => {
-    setProfiles(next);
+    const normalized = ensureDefaultProfile(next);
+    setProfiles(normalized);
     if (typeof window !== "undefined") {
-      localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(next));
+      localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(normalized));
     }
   };
   const captureProfileData = (): ProfileData => ({
@@ -444,12 +519,17 @@ export default function Page() {
       setProfileStatus("Select a profile to delete");
       return;
     }
+    if (activeProfileId === DEFAULT_PROFILE_ID) {
+      setProfileStatus("Default profile cannot be deleted");
+      return;
+    }
     const profile = profiles.find((p) => p.id === activeProfileId);
     const next = profiles.filter((p) => p.id !== activeProfileId);
-    persistProfiles(next);
-    const nextSelection = next[0];
-    setActiveProfileId(nextSelection?.id ?? null);
-    setProfileName(nextSelection?.name ?? "");
+    const normalized = ensureDefaultProfile(next);
+    persistProfiles(normalized);
+    const nextSelection = normalized[0];
+    setActiveProfileId(nextSelection?.id ?? DEFAULT_PROFILE_ID);
+    setProfileName(nextSelection?.name ?? DEFAULT_PROFILE_NAME);
     setProfileStatus(profile ? `Deleted "${profile.name}"` : "Profile deleted");
   };
   const handleSelectProfile = (id: string) => {
@@ -524,7 +604,7 @@ export default function Page() {
 
   return (
     <div className="min-h-screen bg-slate-100 bg-[radial-gradient(circle_at_top,_#e0f2fe_0%,_transparent_40%),radial-gradient(circle_at_bottom,_#fdf2f8_0%,_transparent_45%)] p-6">
-      <div className="max-w-6xl mx-auto space-y-6">
+      <div className="max-w-[90rem] mx-auto space-y-6">
         <div className="flex items-center gap-3"><Factory className="w-6 h-6 text-slate-700" /><h1 className="text-xl font-semibold">Kmart Store Operating Model</h1></div>
 
         <div className="sticky top-4 z-10 bg-gradient-to-b from-white/95 to-slate-50/90 backdrop-blur-xl rounded-3xl border border-white/80 shadow-2xl px-4 py-4">
@@ -661,79 +741,118 @@ export default function Page() {
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
-            <Card className="shadow-lg border border-white/70 bg-white/90 backdrop-blur"><CardContent className="p-4 space-y-5">
-              <div className="text-sm font-medium">Driver controls</div>
-              <div className="grid xl:grid-cols-2 gap-6">
-                <div className="space-y-4">
-                  <div className="text-xs uppercase tracking-wide text-slate-500">Volume & cost</div>
-                  <div className="grid sm:grid-cols-2 gap-3">
-                    <NumInput label="Cartons delivered (weekly)" val={inputs.cartonsDelivered} set={(n) => setInputs((s) => ({ ...s, cartonsDelivered: Math.max(0, n) }))} />
-                    <NumInput label="Online units (weekly)" val={inputs.onlineUnits} set={(n) => setInputs((s) => ({ ...s, onlineUnits: Math.max(0, n) }))} />
-                    <NumInput label="Average hourly rate (AHR)" val={inputs.hourlyRate} step={0.5} set={(n) => setInputs((s) => ({ ...s, hourlyRate: Math.max(0, n) }))} />
-                    <NumInput label="Stores (network)" val={inputs.stores} set={(n) => setInputs((s) => ({ ...s, stores: Math.max(1, n) }))} />
-                  </div>
-                  <div className="rounded-3xl border border-white/70 bg-gradient-to-br from-white via-slate-50 to-slate-100 shadow-xl p-4 space-y-3">
-                    <div className="text-xs uppercase tracking-wide text-slate-500">Issue scenarios</div>
-                    <div className="grid md:grid-cols-2 gap-3">
-                      {ISSUES.map((it) => (
-                        <div key={it.id} className="border rounded-xl bg-white/90 px-3 py-2 shadow-sm">
-                          <div className="flex items-center justify-between">
-                            <div className="text-sm font-medium text-slate-800">{it.name}</div>
-                            <Switch checked={!!issues[it.id]} onCheckedChange={(v) => setIssues((s) => ({ ...s, [it.id]: v }))} />
-                          </div>
-                          <div className="mt-2 flex flex-wrap gap-1">{Object.entries(it.impact).map(([pk, v]) => {
-                            const pct = Math.round((v || 0) * 100); const up = pct > 0; const color = up ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-rose-50 text-rose-700 border-rose-200";
-                            return (<span key={pk} className={`text-[11px] px-2 py-0.5 rounded border ${color}`}>{PROC_LABEL(pk as ProcessKey)} {up ? "+" : ""}{pct}%</span>);
-                          })}</div>
-                        </div>
-                      ))}
+            <Card className="shadow-none border-none bg-transparent"><CardContent className="p-0">
+              <GlowCard accent="sky">
+                <div className="space-y-6">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-[11px] uppercase tracking-[0.3em] text-slate-500">Driver controls</div>
+                      <div className="text-lg font-semibold text-slate-900">Tune demand, cost, and risk assumptions</div>
                     </div>
-                    {(() => {
-                      const cur: Record<ProcessKey, number> = PROCS.reduce((a, p) => { a[p] = ISSUES.reduce((s, it) => s + (issues[it.id] ? it.impact[p] || 0 : 0), 0); return a; }, {} as Record<ProcessKey, number>);
-                      const nxt: Record<ProcessKey, number> = PROCS.reduce((a, p) => { a[p] = ISSUES.reduce((s, it) => s + (issues[it.id] ? (it.impact[p] || 0) * (1 - mitigation) : 0), 0); return a; }, {} as Record<ProcessKey, number>);
-                      const keys = PROCS.filter((p) => (cur[p] || 0) !== 0 || (nxt[p] || 0) !== 0);
-                      if (!keys.length) return null;
-                      return (
-                        <div className="pt-3 border-t border-slate-200 space-y-2">
-                          <div className="flex items-center justify-between text-xs text-slate-600">
-                            <span className="font-medium">Mitigation (new model)</span>
-                            <span>{Math.round(mitigation * 100)}%</span>
-                          </div>
-                          <Slider value={[Math.round(mitigation * 100)]} step={1} onValueChange={(v) => setMitigation(clamp((v[0] || 0) / 100))} />
-                          <div className="grid sm:grid-cols-2 gap-2 text-[11px] text-slate-600">
-                            {keys.map((p) => {
-                              const c = Math.round((cur[p] || 0) * 100);
-                              const n = Math.round((nxt[p] || 0) * 100);
-                              const cc = c >= 0 ? "text-emerald-700" : "text-rose-700";
-                              const nc = n >= 0 ? "text-emerald-700" : "text-rose-700";
-                              return (
-                                <div key={p} className="border rounded-lg bg-white/80 px-2 py-1 flex items-center justify-between">
-                                  <span>{PROC_LABEL(p)}</span>
-                                  <span className={`ml-2 ${cc}`}>Cur {c > 0 ? "+" : ""}{c}%</span>
-                                  <span className="mx-1 text-slate-400">→</span>
-                                  <span className={nc}>New {n > 0 ? "+" : ""}{n}%</span>
-                                </div>
-                              );
-                            })}
-                          </div>
+                    <div className="flex items-center gap-2 text-[11px] text-slate-600">
+                      <span className="rounded-full border border-white/70 bg-white/60 px-3 py-1 font-medium shadow-inner">Live inputs</span>
+                      <span className="rounded-full border border-emerald-100 bg-emerald-50/80 px-3 py-1 font-medium text-emerald-700 shadow-inner">Scenario ready</span>
+                    </div>
+                  </div>
+                  <div className="grid xl:grid-cols-2 gap-6">
+                    <div className="space-y-5">
+                      <div className="space-y-3">
+                        <div className="text-xs uppercase tracking-wide text-slate-500">Volume & cost levers</div>
+                        <div className="grid sm:grid-cols-2 gap-3">
+                          {[
+                          { label: "Cartons receipted (weekly)", val: inputs.cartonsDelivered, set: (n: number) => setInputs((s) => ({ ...s, cartonsDelivered: Math.max(0, n) })) },
+                            { label: "Online units (weekly)", val: inputs.onlineUnits, set: (n: number) => setInputs((s) => ({ ...s, onlineUnits: Math.max(0, n) })) },
+                            { label: "Average hourly rate (AHR)", val: inputs.hourlyRate, step: 0.5, set: (n: number) => setInputs((s) => ({ ...s, hourlyRate: Math.max(0, n) })) },
+                            { label: "Stores (network)", val: inputs.stores, set: (n: number) => setInputs((s) => ({ ...s, stores: Math.max(1, n) })) },
+                          ].map((cfg) => (
+                            <div key={cfg.label} className="rounded-2xl border border-white/60 bg-white/80 p-3 shadow-sm transition duration-300 hover:-translate-y-0.5">
+                              <NumInput label={cfg.label} val={cfg.val} step={cfg.step} set={cfg.set} />
+                            </div>
+                          ))}
                         </div>
-                      );
-                    })()}
+                      </div>
+                      <div className="rounded-3xl border border-white/60 bg-white/85 p-4 shadow-inner space-y-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="text-xs uppercase tracking-wide text-slate-500">Issue scenarios</div>
+                          </div>
+                          <div className="text-[11px] text-slate-500">{Object.values(issues).filter(Boolean).length} active</div>
+                        </div>
+                        <div className="grid md:grid-cols-2 gap-3">
+                          {ISSUES.map((it) => (
+                            <div key={it.id} className="group rounded-2xl border border-white/60 bg-gradient-to-br from-white/95 to-slate-50/70 px-3 py-3 shadow-sm transition duration-300 hover:-translate-y-0.5 hover:shadow-lg">
+                              <div className="flex items-center justify-between gap-2">
+                                <div>
+                                  <div className="text-sm font-semibold text-slate-800">{it.name}</div>
+                                  <div className="text-[11px] text-slate-500">Adjusts process rates</div>
+                                </div>
+                                <Switch checked={!!issues[it.id]} onCheckedChange={(v) => setIssues((s) => ({ ...s, [it.id]: v }))} />
+                              </div>
+                              <div className="mt-3 flex flex-wrap gap-1.5">
+                                {Object.entries(it.impact).map(([pk, v]) => {
+                                  const pct = Math.round((v || 0) * 100);
+                                  const up = pct > 0;
+                                  const color = up ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-rose-50 text-rose-700 border-rose-100";
+                                  return (
+                                    <span key={pk} className={`text-[11px] px-2 py-0.5 rounded-full border ${color}`}>{PROC_LABEL(pk as ProcessKey)} {up ? "+" : ""}{pct}%</span>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        {(() => {
+                          const cur: Record<ProcessKey, number> = PROCS.reduce((a, p) => { a[p] = ISSUES.reduce((s, it) => s + (issues[it.id] ? it.impact[p] || 0 : 0), 0); return a; }, {} as Record<ProcessKey, number>);
+                          const nxt: Record<ProcessKey, number> = PROCS.reduce((a, p) => { a[p] = ISSUES.reduce((s, it) => s + (issues[it.id] ? (it.impact[p] || 0) * (1 - mitigation) : 0), 0); return a; }, {} as Record<ProcessKey, number>);
+                          const keys = PROCS.filter((p) => (cur[p] || 0) !== 0 || (nxt[p] || 0) !== 0);
+                          if (!keys.length) return null;
+                          return (
+                            <div className="rounded-2xl border border-white/60 bg-white/80 p-3 shadow-sm space-y-3">
+                              <div className="flex items-center justify-between text-xs text-slate-600">
+                                <span className="font-medium">Mitigation (new model)</span>
+                                <span className="rounded-full border border-emerald-200 bg-emerald-50/80 px-2 py-0.5 text-emerald-700 font-semibold">
+                                  {Math.round(mitigation * 100)}%
+                                </span>
+                              </div>
+                              <Slider value={[Math.round(mitigation * 100)]} step={1} onValueChange={(v) => setMitigation(clamp((v[0] || 0) / 100))} />
+                              <div className="grid sm:grid-cols-2 gap-2 text-[11px] text-slate-600">
+                                {keys.map((p) => {
+                                  const c = Math.round((cur[p] || 0) * 100);
+                                  const n = Math.round((nxt[p] || 0) * 100);
+                                  const cc = c >= 0 ? "text-emerald-700" : "text-rose-700";
+                                  const nc = n >= 0 ? "text-emerald-700" : "text-rose-700";
+                                  return (
+                                    <div key={p} className="flex items-center justify-between rounded-2xl border border-white/70 bg-white/90 px-3 py-1.5 shadow-inner">
+                                      <span className="font-medium text-slate-700">{PROC_LABEL(p)}</span>
+                                      <div className="flex items-center gap-1 font-medium">
+                                        <span className={cc}>Cur {c > 0 ? "+" : ""}{c}%</span>
+                                        <span className="text-slate-400">⟶</span>
+                                        <span className={nc}>New {n > 0 ? "+" : ""}{n}%</span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                    <CategoryControls
+                      title="Channel & NVAT levers"
+                      remainingPct={Math.max(0, 100 - Math.round(totalSplit * 100))}
+                      split={split}
+                      setSplit={setSplit}
+                      leftFor={leftFor}
+                      nvatCur={nvatCur}
+                      nvatNew={nvatNew}
+                      onNvatChange={updateNvat}
+                    />
                   </div>
                 </div>
-                <CategoryControls
-                  title="Mix & NVAT levers"
-                  remainingPct={Math.max(0, 100 - Math.round(totalSplit * 100))}
-                  split={split}
-                  setSplit={setSplit}
-                  leftFor={leftFor}
-                  nvatCur={nvatCur}
-                  nvatNew={nvatNew}
-                  onNvatChange={updateNvat}
-                />
-              </div>
+              </GlowCard>
             </CardContent></Card>
-            <Card className="shadow-2xl border border-white/70 bg-gradient-to-b from-white via-slate-50 to-slate-100 backdrop-blur"><CardContent className="p-4 space-y-6">
+            <Card className="bg-transparent border-none shadow-none"><CardContent className="p-0">
               <CartonFlowCompare
                 current={{
                   label: "Current model",
@@ -790,33 +909,6 @@ export default function Page() {
                 <div className="space-y-1"><Label className="text-xs">Status</Label><div className="text-sm text-slate-700">{sheetHours ? `${Object.keys(sheetHours).length} processes loaded: ${Object.keys(sheetHours).join(", ")}` : "No file loaded"}</div></div>
               </div>
             </div></GlowCard></CardContent></Card>
-            <div className="grid lg:grid-cols-2 gap-4">
-              <Card className="shadow-none border-none bg-transparent"><CardContent className="p-0"><GlowCard accent="slate"><div className="space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-sm font-medium">Per-process parameters (Current)</div><Button size="sm" variant="outline" onClick={deriveRatesFromHours}>Auto-calc rates</Button></div>
-                <ProcTable cfg={currentCfg} setCfg={setCurrentCfg} sheetHours={sheetHours} workload={model.curUnits} hoursMap={model.curByProc} />
-              </div></GlowCard></CardContent></Card>
-              <Card className="shadow-none border-none bg-transparent"><CardContent className="p-0"><GlowCard accent="slate"><div className="space-y-4">
-                <div className="flex items-center justify-between gap-2"><div className="text-sm font-medium">Per-process parameters (New)</div><div className="text-xs text-slate-500">Shows % vs current</div></div>
-                <ProcTable cfg={newCfg} setCfg={setNewCfg} sheetHours={sheetHours} compareRates={currentCfg} workload={model.newUnits} hoursMap={model.newByProc} />
-              </div></GlowCard></CardContent></Card>
-            </div>
-            <Card className="shadow-none border-none bg-transparent"><CardContent className="p-0"><GlowCard accent="sky"><div className="space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <div className="text-sm font-medium">Value Stream Map parameters</div>
-                  <div className="text-xs text-slate-500">Tune VA% and wait hours per process</div>
-                </div>
-                <Button size="sm" variant="outline" onClick={resetVsm}>Reset defaults</Button>
-              </div>
-              <VsmControls
-                vaCur={vaCur}
-                vaNew={vaNew}
-                waitCur={waitCur}
-                waitNew={waitNew}
-                onVaChange={updateVa}
-                onWaitChange={updateWait}
-              />
-            </div></GlowCard></CardContent></Card>
             <Card className="shadow-none border-none bg-transparent"><CardContent className="p-0"><GlowCard accent="emerald"><div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
@@ -852,7 +944,7 @@ export default function Page() {
                 <Button size="sm" onClick={handleSaveNewProfile}>Save as new</Button>
                 <Button size="sm" variant="outline" onClick={handleUpdateProfile} disabled={!activeProfileId}>Update selected</Button>
                 <Button size="sm" variant="outline" onClick={handleLoadProfile} disabled={!activeProfileId}>Load selected</Button>
-                <Button size="sm" variant="destructive" onClick={handleDeleteProfile} disabled={!activeProfileId}>Delete</Button>
+                <Button size="sm" variant="destructive" onClick={handleDeleteProfile} disabled={!activeProfileId || activeProfileId === DEFAULT_PROFILE_ID}>Delete</Button>
               </div>
               {profileStatus && <div className="text-xs font-medium text-emerald-600">{profileStatus}</div>}
               {profiles.length > 0 && (
@@ -861,6 +953,33 @@ export default function Page() {
                   {new Date(Math.max(...profiles.map((p) => p.savedAt))).toLocaleString()}
                 </div>
               )}
+            </div></GlowCard></CardContent></Card>
+            <div className="grid lg:grid-cols-2 gap-4">
+              <Card className="shadow-none border-none bg-transparent"><CardContent className="p-0"><GlowCard accent="slate"><div className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-sm font-medium">Per-process parameters (Current)</div><Button size="sm" variant="outline" onClick={deriveRatesFromHours}>Auto-calc rates</Button></div>
+                <ProcTable cfg={currentCfg} setCfg={setCurrentCfg} sheetHours={sheetHours} workload={model.curUnits} hoursMap={model.curByProc} />
+              </div></GlowCard></CardContent></Card>
+              <Card className="shadow-none border-none bg-transparent"><CardContent className="p-0"><GlowCard accent="slate"><div className="space-y-4">
+                <div className="flex items-center justify-between gap-2"><div className="text-sm font-medium">Per-process parameters (New)</div><div className="text-xs text-slate-500">Shows % vs current</div></div>
+                <ProcTable cfg={newCfg} setCfg={setNewCfg} sheetHours={sheetHours} compareRates={currentCfg} workload={model.newUnits} hoursMap={model.newByProc} />
+              </div></GlowCard></CardContent></Card>
+            </div>
+            <Card className="shadow-none border-none bg-transparent"><CardContent className="p-0"><GlowCard accent="sky"><div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-medium">Value Stream Map parameters</div>
+                  <div className="text-xs text-slate-500">Tune VA% and wait hours per process</div>
+                </div>
+                <Button size="sm" variant="outline" onClick={resetVsm}>Reset defaults</Button>
+              </div>
+              <VsmControls
+                vaCur={vaCur}
+                vaNew={vaNew}
+                waitCur={waitCur}
+                waitNew={waitNew}
+                onVaChange={updateVa}
+                onWaitChange={updateWait}
+              />
             </div></GlowCard></CardContent></Card>
           </TabsContent>
         </Tabs>
@@ -1011,8 +1130,23 @@ function WaterfallBenefit({ rows, cur, next }: { rows: { name: string; current: 
   );
 }
 
-function SankeySimple({ cartons, chCartons, nvat, cfg, procHours }: { cartons: number; chCartons: Record<string, number>; nvat: { bounce: number; lf2d: number }; cfg: Record<ProcessKey, ProcCfg>; procHours: Record<ProcessKey, number> }) {
-  const W = 1600, H = 560;
+function SankeySimple({
+  cartons,
+  chCartons,
+  nvat,
+  cfg,
+  procHours,
+  height,
+}: {
+  cartons: number;
+  chCartons: Record<string, number>;
+  nvat: { bounce: number; lf2d: number };
+  cfg: Record<ProcessKey, ProcCfg>;
+  procHours: Record<ProcessKey, number>;
+  height?: number;
+}) {
+  const W = 1600;
+  const H = height ?? 560;
   const stageX = [Math.round(W * 0.05), Math.round(W * 0.3), Math.round(W * 0.58), Math.round(W * 0.88)];
   const scale = (v: number) => Math.max(2, Math.sqrt(v) * 0.25);
   const abbr = (n: number) => (n >= 1000 ? `${Math.round(n / 100) / 10}k` : `${Math.round(n)}`);
@@ -1069,9 +1203,14 @@ function SankeySimple({ cartons, chCartons, nvat, cfg, procHours }: { cartons: n
   };
 
   return (
-    <div className="w-full min-w-[640px]">
+    <div className="w-full">
       <style>{`@keyframes flow { to { stroke-dashoffset: -220px; } }`}</style>
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-[600px]" preserveAspectRatio="xMidYMid meet">
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full"
+        style={{ height: `${H}px` }}
+        preserveAspectRatio="xMidYMid meet"
+      >
         {links.map((l, i) => {
           const d = path(nodes[l.from], nodes[l.to]);
           const w = scale(l.v);
@@ -1148,11 +1287,11 @@ type FlowPanelConfig = {
 function CartonFlowCompare({ current, next }: { current: FlowPanelConfig; next: FlowPanelConfig }) {
   return (
     <div className="w-full">
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div className="h-full">
+      <div className="flex flex-col gap-6 xl:flex-row xl:items-stretch overflow-x-auto pb-1">
+        <div className="flex-1 min-w-[640px]">
           <FlowPanel accent="current" {...current} />
         </div>
-        <div className="h-full">
+        <div className="flex-1 min-w-[640px]">
           <FlowPanel accent="new" {...next} />
         </div>
       </div>
@@ -1172,22 +1311,63 @@ function FlowPanel({
   accent,
 }: FlowPanelConfig & { accent: "current" | "new" }) {
   const accentColor = accent === "current" ? "text-sky-600" : "text-emerald-600";
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const [panelWidth, setPanelWidth] = useState(0);
+
+  useEffect(() => {
+    const update = () => {
+      if (panelRef.current) {
+        setPanelWidth(panelRef.current.clientWidth);
+      }
+    };
+    update();
+    let ro: ResizeObserver | null = null;
+    if (typeof window !== "undefined") {
+      window.addEventListener("resize", update, { passive: true });
+      if ("ResizeObserver" in window && panelRef.current) {
+        ro = new window.ResizeObserver((entries) => {
+          entries.forEach((entry) => {
+            if (entry.contentRect?.width) {
+              setPanelWidth(entry.contentRect.width);
+            }
+          });
+        });
+        ro.observe(panelRef.current);
+      }
+    }
+    return () => {
+      if (typeof window !== "undefined") {
+        window.removeEventListener("resize", update);
+      }
+      if (ro) ro.disconnect();
+    };
+  }, []);
+
+  const vizHeight = panelWidth > 0 ? Math.min(760, Math.max(520, panelWidth * 0.55)) : 560;
+  const titleSize = panelWidth > 900 ? "text-2xl" : "text-xl";
+  const hoursSize = panelWidth > 900 ? "text-4xl" : "text-3xl";
+
   return (
-    <div className="space-y-3 rounded-2xl border border-white/60 bg-white/80 p-3 shadow-inner">
-      <div className="flex items-center justify-between">
+    <div ref={panelRef} className="flex h-full flex-col gap-4 rounded-3xl border border-white/50 bg-white/90 p-4 shadow-2xl">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className={`text-xs uppercase tracking-wide ${accentColor}`}>{subtitle}</div>
-          <div className="text-base font-semibold text-slate-900">{label}</div>
+          <div className={`${titleSize} font-semibold text-slate-900`}>{label}</div>
         </div>
         <div className="text-right">
-          <div className="text-xs text-slate-500">Weekly hours</div>
-          <div className="text-2xl font-semibold text-slate-900">{fmt(Math.round(hours))}</div>
+          <div className="text-sm text-slate-500">Weekly hours</div>
+          <div className={`${hoursSize} font-semibold text-slate-900 leading-none`}>{fmt(Math.round(hours))}</div>
         </div>
       </div>
-      <div className="overflow-x-auto rounded-3xl border border-white/70 bg-gradient-to-r from-white via-slate-50 to-white shadow-2xl">
-        <div className="min-w-[960px]">
-          <SankeySimple cartons={cartons} chCartons={flow} nvat={nvat} cfg={cfg} procHours={procHours} />
-        </div>
+      <div className="grow rounded-3xl border border-white/70 bg-gradient-to-r from-white via-slate-50 to-white shadow-inner">
+        <SankeySimple
+          cartons={cartons}
+          chCartons={flow}
+          nvat={nvat}
+          cfg={cfg}
+          procHours={procHours}
+          height={vizHeight}
+        />
       </div>
     </div>
   );
@@ -1266,12 +1446,12 @@ function DriverImpactCard({
     {
       title: "Volume lever",
       value: `${fmt(Math.round(cartons))} ct/wk`,
-      detail: "Cartons delivered drive labour demand; adjust to test load sensitivity.",
+      detail: "Cartons receipted drive labour demand; adjust to test load sensitivity.",
     },
     {
-      title: "Mix lever",
+      title: "Channel lever",
       value: topCategory ? `${topCategory[0]} ${(topCategory[1] * 100).toFixed(0)}%` : "Balanced",
-      detail: "Category split shifts workload between Loadfill, Packaway, and Digital.",
+      detail: "Channel split shifts workload between Loadfill, Packaway, and Digital.",
     },
     {
       title: "NVAT leakage",
@@ -1334,18 +1514,39 @@ function CategoryControls({
   onNvatChange: (mode: "current" | "new", key: "bounce" | "lf2d", value: number) => void;
 }) {
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <div className="text-sm font-medium">{title}</div>
-        <div className="text-xs text-slate-600">Remaining: {Math.max(0, remainingPct)}%</div>
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.3em] text-slate-500">{title}</div>
+          <div className="text-sm font-semibold text-slate-900">Balance channels & protect value-add work</div>
+        </div>
+        <div className="flex items-center gap-2 text-xs">
+          <span className="rounded-full border border-white/70 bg-white/70 px-3 py-1 font-semibold text-slate-700 shadow-inner">
+            {Math.max(0, remainingPct)}% Channels Remaining
+          </span>
+        </div>
       </div>
-      <div className="h-2 rounded bg-slate-200 overflow-hidden flex">
-        {CAT_KEYS.map((k) => {
-          const w = Math.round((split[k] || 0) * 100);
-          const base = k.replace(" %", " ");
-          const c = NODE_COLORS[base.trim()] || "#cbd5e1";
-          return <div key={k} style={{ width: `${w}%`, backgroundColor: c }} />;
-        })}
+      <div className="space-y-2">
+        <div className="h-3 rounded-full bg-slate-200/70 ring-1 ring-white/70 overflow-hidden flex">
+          {CAT_KEYS.map((k) => {
+            const w = Math.round((split[k] || 0) * 100);
+            const base = k.replace(" %", " ");
+            const c = NODE_COLORS[base.trim()] || "#cbd5e1";
+            return <div key={k} style={{ width: `${w}%`, backgroundColor: c }} />;
+          })}
+        </div>
+        <div className="flex flex-wrap gap-3 text-[11px] text-slate-500">
+          {CAT_KEYS.map((k) => {
+            const base = k.replace(" %", " ");
+            const c = NODE_COLORS[base.trim()] || "#cbd5e1";
+            return (
+              <span key={k} className="flex items-center gap-1">
+                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: c }} />
+                {base} {Math.round((split[k] || 0) * 100)}%
+              </span>
+            );
+          })}
+        </div>
       </div>
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {CAT_KEYS.map((k) => {
@@ -1355,17 +1556,29 @@ function CategoryControls({
           );
         })}
       </div>
-      <div className="grid sm:grid-cols-2 gap-3 mt-2">
+      <div className="grid sm:grid-cols-2 gap-3">
         {[
           { mode: "current" as const, title: "Current NVAT controls", data: nvatCur, accent: "text-sky-600" },
-          { mode: "new" as const, title: "New NVAT controls", data: nvatNew, accent: "text-emerald-600" },
+          { mode: "new" as const, title: "Target NVAT controls", data: nvatNew, accent: "text-emerald-600" },
         ].map((item) => (
-          <div key={item.mode} className="space-y-2 p-3 rounded-lg border bg-white shadow-sm">
-            <div className={`text-sm font-medium ${item.accent}`}>{item.title}</div>
-            <div className="flex items-center justify-between text-xs text-slate-500"><span>Bounce-back from Loadfill</span><span>{Math.round((item.data.bounce || 0) * 100)}%</span></div>
-            <Slider value={[Math.round((item.data.bounce || 0) * 100)]} min={0} max={40} step={1} onValueChange={(v) => onNvatChange(item.mode, "bounce", (v[0] || 0) / 100)} />
-            <div className="flex items-center justify-between text-xs text-slate-500"><span>Loadfill → Digital Shopkeeping</span><span>{Math.round((item.data.lf2d || 0) * 100)}%</span></div>
-            <Slider value={[Math.round((item.data.lf2d || 0) * 100)]} min={0} max={40} step={1} onValueChange={(v) => onNvatChange(item.mode, "lf2d", (v[0] || 0) / 100)} />
+          <div key={item.mode} className="space-y-3 rounded-2xl border border-white/60 bg-white/85 p-4 shadow-inner transition duration-300 hover:-translate-y-0.5">
+            <div className={`text-sm font-semibold ${item.accent}`}>{item.title}</div>
+            <div className="space-y-3 text-xs text-slate-600">
+              <div className="flex items-center justify-between">
+                <span>Loadfill bounce-back</span>
+                <span className="rounded-full border border-white/80 bg-white/70 px-2 py-0.5 text-slate-700 font-semibold">
+                  {Math.round((item.data.bounce || 0) * 100)}%
+                </span>
+              </div>
+              <Slider value={[Math.round((item.data.bounce || 0) * 100)]} min={0} max={40} step={1} onValueChange={(v) => onNvatChange(item.mode, "bounce", (v[0] || 0) / 100)} />
+              <div className="flex items-center justify-between">
+                <span>Loadfill → Digital rework</span>
+                <span className="rounded-full border border-white/80 bg-white/70 px-2 py-0.5 text-slate-700 font-semibold">
+                  {Math.round((item.data.lf2d || 0) * 100)}%
+                </span>
+              </div>
+              <Slider value={[Math.round((item.data.lf2d || 0) * 100)]} min={0} max={40} step={1} onValueChange={(v) => onNvatChange(item.mode, "lf2d", (v[0] || 0) / 100)} />
+            </div>
           </div>
         ))}
       </div>
@@ -1461,10 +1674,24 @@ type GlowAccent = keyof typeof GLOW_PRESETS;
 function GlowCard({ children, accent = "emerald" }: { children: React.ReactNode; accent?: GlowAccent }) {
   const preset = GLOW_PRESETS[accent] ?? GLOW_PRESETS.emerald;
   return (
-    <div className={`relative overflow-hidden rounded-3xl border border-white/60 ring-1 ${preset.ring ?? "ring-white/40"} bg-gradient-to-br ${preset.gradient} p-5 shadow-xl`}>
-      <div className={`pointer-events-none absolute -top-16 -right-12 h-48 w-48 rounded-full ${preset.blobA} blur-3xl animate-pulse`} aria-hidden="true" />
-      <div className={`pointer-events-none absolute -bottom-20 -left-12 h-48 w-48 rounded-full ${preset.blobB} blur-3xl animate-pulse`} aria-hidden="true" />
-      <div className="relative">{children}</div>
+    <div
+      className={`group relative overflow-hidden rounded-3xl border border-white/40 ring-1 ${
+        preset.ring ?? "ring-white/40"
+      } backdrop-blur-xl shadow-[0_30px_60px_rgba(15,23,42,0.12)] transition-all duration-500 hover:-translate-y-0.5 hover:shadow-[0_45px_90px_rgba(15,23,42,0.18)]`}
+    >
+      <div
+        className={`absolute inset-0 bg-gradient-to-br ${preset.gradient} opacity-80 transition-opacity duration-500 group-hover:opacity-100`}
+        aria-hidden="true"
+      />
+      <div
+        className={`pointer-events-none absolute -top-16 -right-12 h-48 w-48 rounded-full ${preset.blobA} blur-3xl opacity-70 transition-all duration-700 group-hover:scale-110`}
+        aria-hidden="true"
+      />
+      <div
+        className={`pointer-events-none absolute -bottom-20 -left-12 h-48 w-48 rounded-full ${preset.blobB} blur-3xl opacity-70 transition-all duration-700 group-hover:scale-110`}
+        aria-hidden="true"
+      />
+      <div className="relative z-10 p-4 sm:p-5">{children}</div>
     </div>
   );
 }
@@ -1487,9 +1714,9 @@ function LeanVSM({ curHours, newHours, curUnits, newUnits, vaCur, vaNew, waitCur
   const gap = 14;
   const labelHeight = 34;
   const labelSpacing = 8;
-  const containerRef = React.useRef<HTMLDivElement | null>(null);
-  const [w, setW] = React.useState(1000);
-  React.useEffect(() => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [w, setW] = useState(1000);
+  useEffect(() => {
     const el = containerRef.current; if (!el) return;
     let ro: ResizeObserver | null = null;
     if (typeof window !== 'undefined' && 'ResizeObserver' in window) {
@@ -1615,32 +1842,15 @@ function LeanVSM({ curHours, newHours, curUnits, newUnits, vaCur, vaNew, waitCur
 
 function HeroStat({ label, value, helper, color }: { label: string; value: string; helper: string; color: string }) {
   return (
-    <div className={`rounded-3xl text-white p-4 shadow-lg bg-gradient-to-br ${color}`}>
-      <div className="text-[11px] uppercase tracking-wide opacity-80">{label}</div>
-      <div className="text-2xl font-semibold leading-tight">{value}</div>
-      <div className="text-xs opacity-90 mt-1">{helper}</div>
+    <div
+      className={`group relative overflow-hidden rounded-3xl text-white p-4 sm:p-5 shadow-[0_25px_55px_rgba(15,23,42,0.18)] bg-gradient-to-br ${color} transition-all duration-500 hover:-translate-y-0.5`}
+    >
+      <div className="absolute inset-0 bg-white/10 opacity-0 transition-opacity duration-500 group-hover:opacity-30" aria-hidden="true" />
+      <div className="relative z-10 space-y-1.5">
+        <div className="text-[11px] uppercase tracking-[0.2em] opacity-80">{label}</div>
+        <div className="text-2xl sm:text-3xl font-semibold leading-tight">{value}</div>
+        <div className="text-xs opacity-90">{helper}</div>
+      </div>
     </div>
   );
 }
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const raw = localStorage.getItem(PROFILE_STORAGE_KEY);
-      if (!raw) return;
-      const stored = JSON.parse(raw) as ModelProfile[];
-      if (Array.isArray(stored)) {
-        setProfiles(stored);
-        if (stored.length) {
-          setActiveProfileId(stored[0].id);
-          setProfileName(stored[0].name);
-        }
-      }
-    } catch (err) {
-      console.error("Failed to load profiles", err);
-    }
-  }, []);
-  useEffect(() => {
-    if (!profileStatus) return;
-    const t = setTimeout(() => setProfileStatus(""), 2500);
-    return () => clearTimeout(t);
-  }, [profileStatus]);
