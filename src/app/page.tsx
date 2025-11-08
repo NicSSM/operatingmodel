@@ -309,8 +309,8 @@ export default function Page() {
   const perStoreHours = Math.round(model.benefit);
   const networkWeekly = Math.round(model.savings * inputs.stores);
   const networkHours = Math.round(model.benefit * inputs.stores);
-  const displayPct = Math.max(0, pctSaved);
-  const savingsProgress = clamp(displayPct / 100, 0, 1);
+  const prodUpliftPct = curProd > 0 ? (prodDelta / curProd) * 100 : 0;
+  const maxProdBenchmark = Math.max(curProd, newProd, 1);
   const confidenceLevels = [
     { label: "Conservative", m: 0.8 },
     { label: "Expected", m: 1.0 },
@@ -427,22 +427,42 @@ export default function Page() {
                     <div className="text-[11px] text-slate-500">Per week across network</div>
                   </div>
                   <div className="rounded-2xl border border-white/70 bg-white/85 p-3 shadow-sm transition duration-300 hover:-translate-y-0.5">
-                    <div className="text-[11px] uppercase tracking-wide text-slate-500">Savings momentum</div>
-                    <div className="text-lg font-semibold text-slate-900">{Math.round(displayPct)}%</div>
-                    <div className="text-[11px] text-slate-500">Of current hours</div>
+                    <div className="text-[11px] uppercase tracking-wide text-slate-500">Productivity uplift</div>
+                    <div className="text-lg font-semibold text-slate-900">
+                      {prodDelta >= 0 ? "+" : ""}
+                      {fmt(prodDelta, 2)} ct/hr
+                    </div>
+                    <div className="text-[11px] text-slate-500">
+                      {prodUpliftPct >= 0 ? "+" : ""}
+                      {fmt(prodUpliftPct, 1)}% vs current
+                    </div>
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-xs text-slate-600">
-                    <span>Momentum tracker</span>
-                    <span>{Math.round(displayPct)}%</span>
+                <div className="rounded-2xl border border-white/70 bg-white/85 p-4 shadow-sm space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm font-medium text-slate-800">Productivity shift</div>
+                    <div className="text-xs text-slate-500">Cartons per hour</div>
                   </div>
-                  <div className="relative h-3 rounded-full bg-white/60 overflow-hidden">
-                    <div
-                      className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-emerald-400 via-emerald-500 to-sky-500 shadow-lg transition-all duration-700"
-                      style={{ width: `${Math.round(savingsProgress * 100)}%` }}
-                    />
-                  </div>
+                  {[
+                    { label: "Current model", value: curProd, accent: "from-slate-200 via-slate-100 to-white" },
+                    { label: "New model", value: newProd, accent: "from-emerald-400 via-emerald-500 to-sky-400" },
+                  ].map((row) => {
+                    const pct = Math.max(6, Math.round((Math.max(0, row.value) / maxProdBenchmark) * 100));
+                    return (
+                      <div key={row.label} className="space-y-1">
+                        <div className="flex items-center justify-between text-xs text-slate-600">
+                          <span>{row.label}</span>
+                          <span className="font-semibold text-slate-900">{fmt(row.value, 2)} ct/hr</span>
+                        </div>
+                        <div className="h-3 rounded-full bg-slate-100 overflow-hidden">
+                          <div
+                            className={`h-3 rounded-full bg-gradient-to-r shadow-inner transition-all duration-700 ${row.accent}`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
                 <div className="grid sm:grid-cols-3 gap-3 text-sm">
                   {confidenceLevels.map((b) => {
