@@ -288,6 +288,15 @@ export default function Page() {
 
   const pctSaved = model.curHours ? Math.round((model.benefit / model.curHours) * 100) : 0;
   const networkAnnual = Math.round(Math.round(model.savings) * inputs.stores * 52);
+  const perStoreWeekly = Math.round(model.savings);
+  const perStoreHours = Math.round(model.benefit);
+  const networkWeekly = Math.round(model.savings * inputs.stores);
+  const savingsProgress = clamp(pctSaved / 100, 0, 1);
+  const confidenceLevels = [
+    { label: "Conservative", m: 0.8 },
+    { label: "Expected", m: 1.0 },
+    { label: "Stretch", m: 1.2 },
+  ];
 
   const deriveRatesFromHours = () => {
     const derivedRates: Record<ProcessKey, number> = {} as Record<ProcessKey, number>;
@@ -363,13 +372,51 @@ export default function Page() {
             <HeroStat label={`Network (${inputs.stores} stores)`} value={`${fmt(Math.round(model.benefit * inputs.stores))} hrs`} helper={`≈ A${fmt(Math.round(model.savings * inputs.stores))}/wk`} color="from-rose-600 via-rose-500 to-rose-400" />
           </div>
         </div>
-        <Card className="shadow-xl border border-white/70 bg-gradient-to-br from-white via-slate-50 to-slate-100 backdrop-blur"><CardContent className="p-4"><div className="text-sm font-medium mb-1">Annualised network benefit</div><div className="text-3xl font-semibold">A${fmt(networkAnnual)}</div><div className="text-sm text-slate-600 mt-1">Weekly: A${fmt(Math.round(model.savings * inputs.stores))} · Saved: {pctSaved}% of current hours</div>
-          <div className="mt-3"><div className="text-xs text-slate-600 mb-1">Confidence levels</div>
-            <div className="grid grid-cols-3 gap-2 text-sm">{[{ label: "Conservative", m: 0.8 }, { label: "Expected", m: 1.0 }, { label: "Stretch", m: 1.2 }].map((b) => (
-              <div key={b.label} className="border rounded-lg p-2"><div className="text-[11px] text-slate-500">{b.label}</div><div className="font-medium">A${fmt(Math.round(networkAnnual * b.m))}/yr</div></div>
-            ))}</div>
-          </div>
-        </CardContent></Card>
+        <Card className="shadow-xl border-none bg-transparent">
+          <CardContent className="p-0">
+            <div className="rounded-3xl border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-sky-50 p-5 shadow-xl space-y-5">
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-emerald-700">
+                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Network</span>
+                    <span>Annualised benefit</span>
+                  </div>
+                  <div className="mt-2 text-4xl font-semibold text-slate-900">A${fmt(networkAnnual)}</div>
+                  <div className="text-sm text-slate-600 mt-1">Weekly impact: A${fmt(networkWeekly)} · {pctSaved}% of current hours released</div>
+                </div>
+                <div className="bg-white/85 rounded-2xl p-4 shadow-inner text-right border border-white/60">
+                  <div className="text-[11px] uppercase tracking-wide text-slate-500">Per store weekly</div>
+                  <div className="text-2xl font-semibold text-slate-900">A${fmt(perStoreWeekly)}</div>
+                  <div className="text-sm text-slate-500">{fmt(perStoreHours)} hrs saved</div>
+                </div>
+              </div>
+              <div>
+                <div className="flex items-center justify-between text-xs text-slate-600">
+                  <span>Hours saved across network</span>
+                  <span>{pctSaved}%</span>
+                </div>
+                <div className="mt-2 h-2 rounded-full bg-white/60">
+                  <div
+                    className="h-2 rounded-full bg-emerald-500 shadow"
+                    style={{ width: `${Math.round(savingsProgress * 100)}%` }}
+                  />
+                </div>
+              </div>
+              <div className="grid sm:grid-cols-3 gap-3 text-sm">
+                {confidenceLevels.map((b) => {
+                  const delta = b.m === 1 ? "Base case" : b.m < 1 ? "-20% downside" : "+20% upside";
+                  return (
+                    <div key={b.label} className="rounded-2xl border border-white/60 bg-white/80 p-3 shadow-sm">
+                      <div className="text-[11px] uppercase tracking-wide text-slate-500">{b.label}</div>
+                      <div className="text-lg font-semibold text-slate-900">A${fmt(Math.round(networkAnnual * b.m))}/yr</div>
+                      <div className="text-[11px] text-slate-500 mt-1">{delta}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         <div className="grid lg:grid-cols-2 gap-4">
           <Card className="shadow-xl border border-white/70 bg-gradient-to-b from-white via-slate-50 to-slate-100 backdrop-blur"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium flex items-center justify-between">Process rate comparison<span className="text-xs text-slate-500">Rate / 1000</span></div><RateCompareChart currentCfg={currentCfg} newCfg={newCfg} /></CardContent></Card>
@@ -807,10 +854,14 @@ type FlowPanelConfig = {
 
 function CartonFlowCompare({ current, next }: { current: FlowPanelConfig; next: FlowPanelConfig }) {
   return (
-    <div className="space-y-8 relative left-1/2 right-1/2 w-screen max-w-none -translate-x-1/2 px-2 sm:px-6 lg:px-12">
-      <div className="flex flex-col gap-12">
-        <FlowPanel accent="current" {...current} />
-        <FlowPanel accent="new" {...next} />
+    <div className="w-full">
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="h-full">
+          <FlowPanel accent="current" {...current} />
+        </div>
+        <div className="h-full">
+          <FlowPanel accent="new" {...next} />
+        </div>
       </div>
     </div>
   );
@@ -1038,9 +1089,11 @@ function LeanVSM({ curHours, newHours, curUnits, newUnits, vaCur, vaNew, waitCur
   cfgNew: Record<ProcessKey, ProcCfg>;
 }) {
   const pad = 24;
-  const rowGap = 140;
+  const rowGap = 190;
   const boxH = 28;
   const gap = 14;
+  const labelHeight = 34;
+  const labelSpacing = 8;
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const [w, setW] = React.useState(1000);
   React.useEffect(() => {
@@ -1116,13 +1169,19 @@ function LeanVSM({ curHours, newHours, curUnits, newUnits, vaCur, vaNew, waitCur
                 const centerX = xStart + (w1 + w2 + w3) / 2;
                 const hoursLabel = `${PROC_LABEL(p)} · ${fmt(Math.round(h))} hrs/wk`;
                 const detailLabel = `${fmt(u)} ${unit}/wk @ ${fmt(rate)} hrs/1000${unit}`;
+                const labelWidth = Math.max(1, w1 + w2 + w3);
+                const labelX = xStart;
+                const labelY = yBox + Hbox + labelSpacing;
                 const out = (
                   <g key={p}>
                     <rect x={xStart} y={yBox} width={w1} height={Hbox} rx={5} fill="#bbf7d0" stroke="#10b981" />
                     <rect x={xStart + w1} y={yBox} width={w2} height={Hbox} rx={5} fill="#fecaca" stroke="#ef4444" />
                     <rect x={xStart + w1 + w2} y={yBox} width={w3} height={Hbox} rx={5} fill="#fde68a" stroke="#f59e0b" />
-                    <text x={centerX} y={yBox + Hbox / 2 + 2} textAnchor="middle" fontSize={10} fill="#0f172a">{hoursLabel}</text>
-                    <text x={centerX} y={yBox + Hbox / 2 + 14} textAnchor="middle" fontSize={9} fill="#475569">{detailLabel}</text>
+                    <rect x={labelX} y={labelY} width={labelWidth} height={labelHeight} rx={10} fill="#ffffff" fillOpacity={0.95} stroke="#e2e8f0" />
+                    <text x={centerX} y={labelY + 14} textAnchor="middle" fontSize={10} fill="#0f172a">
+                      <tspan x={centerX}>{hoursLabel}</tspan>
+                      <tspan x={centerX} dy={12} fontSize={9} fill="#475569">{detailLabel}</tspan>
+                    </text>
                     <text x={xStart + w1 / 2} y={yBox - 6} textAnchor="middle" fontSize={10} fill="#166534">VA {Math.round(vaf * 100)}%</text>
                     {(nvaH > 0) && (<text x={xStart + w1 + w2 / 2} y={yBox - 6} textAnchor="middle" fontSize={10} fill="#991b1b">NVA {Math.round((1 - vaf) * 100)}%</text>)}
                     {(wH > 0) && (<text x={xStart + w1 + w2 + w3 / 2} y={yBox - 6} textAnchor="middle" fontSize={10} fill="#92400e">Wait {fmt(wH)}h</text>)}
@@ -1132,12 +1191,19 @@ function LeanVSM({ curHours, newHours, curUnits, newUnits, vaCur, vaNew, waitCur
                 return out;
               })}
               <g>
-                <text x={pad} y={y + 54} fontSize={11} fill="#334155">Lead time</text>
-                <text x={pad + 70} y={y + 54} fontSize={12} fill="#0f172a">{fmt(totals[rowIdx].lead)} hrs</text>
-                <text x={pad + 170} y={y + 54} fontSize={11} fill="#166534">VA {fmt(totals[rowIdx].vaT)} hrs</text>
-                <text x={pad + 250} y={y + 54} fontSize={11} fill="#991b1b">NVA {fmt(totals[rowIdx].nvaT)} hrs</text>
-                <text x={pad + 330} y={y + 54} fontSize={11} fill="#92400e">Wait {fmt(totals[rowIdx].waitT)} hrs</text>
-                <text x={pad + 430} y={y + 54} fontSize={11} fill="#334155">VA ratio {Math.round((totals[rowIdx].vaT / Math.max(1, totals[rowIdx].lead)) * 100)}%</text>
+                {(() => {
+                  const summaryY = y + boxH + labelSpacing + labelHeight + 28;
+                  return (
+                    <>
+                      <text x={pad} y={summaryY} fontSize={11} fill="#334155">Lead time</text>
+                      <text x={pad + 70} y={summaryY} fontSize={12} fill="#0f172a">{fmt(totals[rowIdx].lead)} hrs</text>
+                      <text x={pad + 170} y={summaryY} fontSize={11} fill="#166534">VA {fmt(totals[rowIdx].vaT)} hrs</text>
+                      <text x={pad + 250} y={summaryY} fontSize={11} fill="#991b1b">NVA {fmt(totals[rowIdx].nvaT)} hrs</text>
+                      <text x={pad + 330} y={summaryY} fontSize={11} fill="#92400e">Wait {fmt(totals[rowIdx].waitT)} hrs</text>
+                      <text x={pad + 430} y={summaryY} fontSize={11} fill="#334155">VA ratio {Math.round((totals[rowIdx].vaT / Math.max(1, totals[rowIdx].lead)) * 100)}%</text>
+                    </>
+                  );
+                })()}
               </g>
             </g>
           );
