@@ -258,7 +258,7 @@ export default function Page() {
   const [vaCur] = useState<Record<ProcessKey, number>>(DEFAULT_VA);
   const [vaNew] = useState<Record<ProcessKey, number>>(DEFAULT_VA);
   const [waitCur] = useState<Record<ProcessKey, number>>(ZERO_WAIT);
-  const [waitNew, setWaitNew] = useState<Record<ProcessKey, number>>(ZERO_WAIT);
+  const [waitNew] = useState<Record<ProcessKey, number>>(ZERO_WAIT);
 
   useEffect(() => {
     setNvatCur((s) => ({ ...s, bounce: issues["non_dem"] ? 0.3 : 0.2, lf2d: issues["new_lines"] ? 0.25 : 0.15 }));
@@ -385,18 +385,14 @@ export default function Page() {
         </div>
 
         <Tabs defaultValue="overview">
-          <TabsList className="grid grid-cols-3 w-full md:w-auto">
+          <TabsList className="grid grid-cols-2 w-full md:w-auto">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="explorer">Process Explorer</TabsTrigger>
-            <TabsTrigger value="lean">Lean VSM</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
             <Card className="shadow-lg border border-white/70 bg-white/90 backdrop-blur"><CardContent className="p-4 space-y-5">
-              <div className="flex items-center justify-between">
-                <div className="text-sm font-medium">Driver controls</div>
-                <div className="text-xs text-slate-500">Adjust inputs & mix to see instant impact</div>
-              </div>
+              <div className="text-sm font-medium">Driver controls</div>
               <div className="grid xl:grid-cols-2 gap-6">
                 <div className="space-y-4">
                   <div className="text-xs uppercase tracking-wide text-slate-500">Volume & cost</div>
@@ -496,10 +492,6 @@ export default function Page() {
               <Card className="shadow-lg border border-white/60 bg-gradient-to-br from-white via-slate-50 to-slate-100"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium">Net savings composition (by process)</div><SavingsDonut deltas={deltaRows} net={model.benefit} /></CardContent></Card>
               <Card className="shadow-lg border border-white/60 bg-gradient-to-br from-white via-slate-50 to-slate-100"><CardContent className="p-4"><div className="text-sm font-medium mb-2">Benefit waterfall: Current → processes → New</div><WaterfallBenefit rows={procRows} cur={model.curHours} next={model.newHours} /></CardContent></Card>
             </div>
-            <div className="grid lg:grid-cols-2 gap-4">
-              <Card className="shadow-sm"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium">Net savings composition (by process)</div><SavingsDonut deltas={deltaRows} net={model.benefit} /></CardContent></Card>
-              <Card className="shadow-sm"><CardContent className="p-4"><div className="text-sm font-medium mb-2">Benefit waterfall: Current → processes → New</div><WaterfallBenefit rows={procRows} cur={model.curHours} next={model.newHours} /></CardContent></Card>
-            </div>
 
             <Card className="shadow-lg border border-white/70 bg-gradient-to-br from-white via-slate-50 to-slate-100"><CardContent className="p-4 space-y-4">
               <div className="text-sm font-medium">Value Stream Map</div>
@@ -514,14 +506,6 @@ export default function Page() {
                 waitNew={waitNew}
                 cfgCur={currentCfg}
                 cfgNew={newCfg}
-              />
-            </CardContent></Card>
-
-            <Card className="shadow-lg border border-white/70 bg-gradient-to-br from-white via-slate-50 to-slate-100"><CardContent className="p-4">
-              <div className="text-sm font-medium mb-2">Lean insights</div>
-              <LeanInsights curHours={model.curByProc} newHours={model.newByProc} vaCur={vaCur} waitCur={waitCur}
-                onApplyRate={(p, pct) => setNewCfg((s) => ({ ...s, [p]: { ...s[p], rate: Math.max(0, s[p].rate * (1 - pct)) } }))}
-                onReduceWait={(p, pct) => setWaitNew((w) => ({ ...w, [p]: Math.max(0, w[p] * (1 - pct)) }))}
               />
             </CardContent></Card>
           </TabsContent>
@@ -1001,50 +985,42 @@ function CategoryControls({
   nvatNew: { bounce: number; lf2d: number };
   onNvatChange: (mode: "current" | "new", key: "bounce" | "lf2d", value: number) => void;
 }) {
-  const [open, setOpen] = useState(true);
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <div className="text-sm font-medium">{title}</div>
-        <div className="flex items-center gap-2">
-          <div className="text-xs text-slate-600">Remaining: {Math.max(0, remainingPct)}%</div>
-          <Button variant="outline" className="h-7 px-2" onClick={() => setOpen((v) => !v)}>{open ? "Hide" : "Show"}</Button>
-        </div>
+        <div className="text-xs text-slate-600">Remaining: {Math.max(0, remainingPct)}%</div>
       </div>
-      {open && (
-        <>
-          <div className="h-2 rounded bg-slate-200 overflow-hidden flex">
-            {CAT_KEYS.map((k) => {
-              const w = Math.round((split[k] || 0) * 100);
-              const base = k.replace(" %", " ");
-              const c = NODE_COLORS[base.trim()] || "#cbd5e1";
-              return <div key={k} style={{ width: `${w}%`, backgroundColor: c }} />;
-            })}
+      <div className="h-2 rounded bg-slate-200 overflow-hidden flex">
+        {CAT_KEYS.map((k) => {
+          const w = Math.round((split[k] || 0) * 100);
+          const base = k.replace(" %", " ");
+          const c = NODE_COLORS[base.trim()] || "#cbd5e1";
+          return <div key={k} style={{ width: `${w}%`, backgroundColor: c }} />;
+        })}
+      </div>
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {CAT_KEYS.map((k) => {
+          const left = leftFor(k);
+          return (
+            <PercentSlider key={k} label={k} value={split[k]} maxLeft={left} onChange={(v) => setSplit((s) => ({ ...s, [k]: clamp(v, 0, left) }))} />
+          );
+        })}
+      </div>
+      <div className="grid sm:grid-cols-2 gap-3 mt-2">
+        {[
+          { mode: "current" as const, title: "Current NVAT controls", data: nvatCur, accent: "text-sky-600" },
+          { mode: "new" as const, title: "New NVAT controls", data: nvatNew, accent: "text-emerald-600" },
+        ].map((item) => (
+          <div key={item.mode} className="space-y-2 p-3 rounded-lg border bg-white shadow-sm">
+            <div className={`text-sm font-medium ${item.accent}`}>{item.title}</div>
+            <div className="flex items-center justify-between text-xs text-slate-500"><span>Bounce-back from Loadfill</span><span>{Math.round((item.data.bounce || 0) * 100)}%</span></div>
+            <Slider value={[Math.round((item.data.bounce || 0) * 100)]} min={0} max={40} step={1} onValueChange={(v) => onNvatChange(item.mode, "bounce", (v[0] || 0) / 100)} />
+            <div className="flex items-center justify-between text-xs text-slate-500"><span>Loadfill → Digital Shopkeeping</span><span>{Math.round((item.data.lf2d || 0) * 100)}%</span></div>
+            <Slider value={[Math.round((item.data.lf2d || 0) * 100)]} min={0} max={40} step={1} onValueChange={(v) => onNvatChange(item.mode, "lf2d", (v[0] || 0) / 100)} />
           </div>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {CAT_KEYS.map((k) => {
-              const left = leftFor(k);
-              return (
-                <PercentSlider key={k} label={k} value={split[k]} maxLeft={left} onChange={(v) => setSplit((s) => ({ ...s, [k]: clamp(v, 0, left) }))} />
-              );
-            })}
-          </div>
-          <div className="grid sm:grid-cols-2 gap-3 mt-2">
-            {[
-              { mode: "current" as const, title: "Current NVAT controls", data: nvatCur, accent: "text-sky-600" },
-              { mode: "new" as const, title: "New NVAT controls", data: nvatNew, accent: "text-emerald-600" },
-            ].map((item) => (
-              <div key={item.mode} className="space-y-2 p-3 rounded-lg border bg-white shadow-sm">
-                <div className={`text-sm font-medium ${item.accent}`}>{item.title}</div>
-                <div className="flex items-center justify-between text-xs text-slate-500"><span>Bounce-back from Loadfill</span><span>{Math.round((item.data.bounce || 0) * 100)}%</span></div>
-                <Slider value={[Math.round((item.data.bounce || 0) * 100)]} min={0} max={40} step={1} onValueChange={(v) => onNvatChange(item.mode, "bounce", (v[0] || 0) / 100)} />
-                <div className="flex items-center justify-between text-xs text-slate-500"><span>Loadfill → Digital Shopkeeping</span><span>{Math.round((item.data.lf2d || 0) * 100)}%</span></div>
-                <Slider value={[Math.round((item.data.lf2d || 0) * 100)]} min={0} max={40} step={1} onValueChange={(v) => onNvatChange(item.mode, "lf2d", (v[0] || 0) / 100)} />
-              </div>
-            ))}
-          </div>
-        </>
-      )}
+        ))}
+      </div>
     </div>
   );
 }
@@ -1137,13 +1113,16 @@ function LeanVSM({ curHours, newHours, curUnits, newUnits, vaCur, vaNew, waitCur
                 const unit = r.cfg[p].unit === 'online' ? 'u' : 'ct';
                 const rate = r.cfg[p].rate;
                 const u = Math.round(r.units[p] || 0);
-                const label = `${PROC_LABEL(p)} · ${fmt(rate)} hrs/1000${unit} · ${fmt(u)} ${unit}/wk`;
+                const centerX = xStart + (w1 + w2 + w3) / 2;
+                const hoursLabel = `${PROC_LABEL(p)} · ${fmt(Math.round(h))} hrs/wk`;
+                const detailLabel = `${fmt(u)} ${unit}/wk @ ${fmt(rate)} hrs/1000${unit}`;
                 const out = (
                   <g key={p}>
                     <rect x={xStart} y={yBox} width={w1} height={Hbox} rx={5} fill="#bbf7d0" stroke="#10b981" />
                     <rect x={xStart + w1} y={yBox} width={w2} height={Hbox} rx={5} fill="#fecaca" stroke="#ef4444" />
                     <rect x={xStart + w1 + w2} y={yBox} width={w3} height={Hbox} rx={5} fill="#fde68a" stroke="#f59e0b" />
-                    <text x={xStart + (w1 + w2 + w3) / 2} y={yBox + Hbox / 2 + 4} textAnchor="middle" fontSize={10} fill="#0f172a">{label}</text>
+                    <text x={centerX} y={yBox + Hbox / 2 + 2} textAnchor="middle" fontSize={10} fill="#0f172a">{hoursLabel}</text>
+                    <text x={centerX} y={yBox + Hbox / 2 + 14} textAnchor="middle" fontSize={9} fill="#475569">{detailLabel}</text>
                     <text x={xStart + w1 / 2} y={yBox - 6} textAnchor="middle" fontSize={10} fill="#166534">VA {Math.round(vaf * 100)}%</text>
                     {(nvaH > 0) && (<text x={xStart + w1 + w2 / 2} y={yBox - 6} textAnchor="middle" fontSize={10} fill="#991b1b">NVA {Math.round((1 - vaf) * 100)}%</text>)}
                     {(wH > 0) && (<text x={xStart + w1 + w2 + w3 / 2} y={yBox - 6} textAnchor="middle" fontSize={10} fill="#92400e">Wait {fmt(wH)}h</text>)}
@@ -1168,44 +1147,6 @@ function LeanVSM({ curHours, newHours, curUnits, newUnits, vaCur, vaNew, waitCur
     </div>
   );
 }
-
-function LeanInsights({ curHours, newHours, vaCur, waitCur, onApplyRate, onReduceWait }: {
-  curHours: Record<ProcessKey, number>;
-  newHours: Record<ProcessKey, number>;
-  vaCur: Record<ProcessKey, number>;
-  waitCur: Record<ProcessKey, number>;
-  onApplyRate: (p: ProcessKey, pct: number) => void;
-  onReduceWait: (p: ProcessKey, pct: number) => void;
-}) {
-  const mk = (p: ProcessKey) => {
-    const h = Math.max(0, curHours[p] || 0);
-    const vaf = clamp(vaCur[p] ?? 0.7, 0, 1);
-    const nvaH = h * (1 - vaf) + Math.max(0, waitCur[p] || 0);
-    const newH = Math.max(0, newHours[p] || 0);
-    const delta = h - newH;
-    return { p, name: PROC_LABEL(p), nvaH, h, newH, delta };
-  };
-  const rows = PROCS.map(mk).sort((a,b) => b.nvaH - a.nvaH).slice(0, 4);
-  return (
-    <div className="grid md:grid-cols-2 gap-3 text-sm">
-      {rows.map((r) => (
-        <div key={r.p} className="border rounded-lg p-3">
-          <div className="font-medium flex items-center justify-between">
-            <span>{r.name}</span>
-            <span className="text-xs text-slate-600">NVA {fmt(Math.round(r.nvaH))} hrs/wk</span>
-          </div>
-          <div className="text-xs text-slate-600">Opportunity: reduce wait and improve rate</div>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <Button variant="outline" className="h-7 px-2 text-xs" onClick={() => onReduceWait(r.p, 0.25)}>Reduce wait 25%</Button>
-            <Button variant="outline" className="h-7 px-2 text-xs" onClick={() => onApplyRate(r.p, 0.1)}>Improve rate 10%</Button>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-
 
 
 function HeroStat({ label, value, helper, color }: { label: string; value: string; helper: string; color: string }) {
