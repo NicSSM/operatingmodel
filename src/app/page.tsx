@@ -393,10 +393,8 @@ export default function Page() {
         </div>
         <Card className="shadow-xl border-none bg-transparent">
           <CardContent className="p-0">
-            <div className="relative overflow-hidden rounded-3xl border border-emerald-100 bg-gradient-to-br from-white via-emerald-50 to-slate-50 p-5 shadow-2xl">
-              <div className="pointer-events-none absolute -top-16 -right-12 h-48 w-48 rounded-full bg-emerald-200/60 blur-3xl animate-pulse" aria-hidden="true" />
-              <div className="pointer-events-none absolute -bottom-20 -left-10 h-56 w-56 rounded-full bg-sky-200/50 blur-3xl animate-pulse" aria-hidden="true" />
-              <div className="relative space-y-6">
+            <GlowCard accent="emerald">
+              <div className="space-y-6">
                 <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                   <div className="space-y-3">
                     <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700 shadow-sm">
@@ -438,31 +436,49 @@ export default function Page() {
                     </div>
                   </div>
                 </div>
-                <div className="rounded-2xl border border-white/70 bg-white/85 p-4 shadow-sm space-y-3">
+                <div className="rounded-2xl border border-white/70 bg-white/85 p-4 shadow-sm space-y-4">
                   <div className="flex items-center justify-between">
                     <div className="text-sm font-medium text-slate-800">Productivity shift</div>
                     <div className="text-xs text-slate-500">Cartons per hour</div>
                   </div>
-                  {[
-                    { label: "Current model", value: curProd, accent: "from-slate-200 via-slate-100 to-white" },
-                    { label: "New model", value: newProd, accent: "from-emerald-400 via-emerald-500 to-sky-400" },
-                  ].map((row) => {
-                    const pct = Math.max(6, Math.round((Math.max(0, row.value) / maxProdBenchmark) * 100));
-                    return (
-                      <div key={row.label} className="space-y-1">
-                        <div className="flex items-center justify-between text-xs text-slate-600">
-                          <span>{row.label}</span>
-                          <span className="font-semibold text-slate-900">{fmt(row.value, 2)} ct/hr</span>
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    {[
+                      { label: "Current model", value: curProd, accent: "#38bdf8" },
+                      { label: "New model", value: newProd, accent: "#22c55e" },
+                    ].map((row) => {
+                      const pct = Math.max(0, Math.min(1, row.value / Math.max(1, maxProdBenchmark)));
+                      const radius = 32;
+                      const C = 2 * Math.PI * radius;
+                      const dash = pct * C;
+                      return (
+                        <div key={row.label} className="flex items-center gap-3">
+                          <svg viewBox="0 0 80 80" className="w-20 h-20">
+                            <circle cx="40" cy="40" r={radius} fill="none" stroke="#e2e8f0" strokeWidth="8" />
+                            <circle cx="40" cy="40" r={radius} fill="none" stroke={row.accent} strokeWidth="8" strokeLinecap="round" strokeDasharray={`${dash} ${C - dash}`} transform="rotate(-90 40 40)" style={{ filter: `drop-shadow(0 0 6px ${row.accent}66)`, transition: "stroke-dasharray 0.8s ease-out" }} />
+                            <text x="40" y="44" textAnchor="middle" fontSize="12" fill="#0f172a" fontWeight="600">
+                              {fmt(row.value, 2)}
+                            </text>
+                            <text x="40" y="58" textAnchor="middle" fontSize="9" fill="#475569">
+                              ct/hr
+                            </text>
+                          </svg>
+                          <div>
+                            <div className="text-xs uppercase tracking-wide text-slate-500">{row.label}</div>
+                            <div className="text-lg font-semibold text-slate-900">{fmt(row.value, 2)} ct/hr</div>
+                          </div>
                         </div>
-                        <div className="h-3 rounded-full bg-slate-100 overflow-hidden">
-                          <div
-                            className={`h-3 rounded-full bg-gradient-to-r shadow-inner transition-all duration-700 ${row.accent}`}
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
+                    <div className={`rounded-full px-3 py-1 font-medium ${prodDelta >= 0 ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}`}>
+                      {prodDelta >= 0 ? "▲" : "▼"} {fmt(Math.abs(prodDelta), 2)} ct/hr delta
+                    </div>
+                    <div className="rounded-full px-3 py-1 bg-white/80 border border-white/60">
+                      {prodUpliftPct >= 0 ? "+" : ""}
+                      {fmt(prodUpliftPct, 1)}% vs current throughput
+                    </div>
+                  </div>
                 </div>
                 <div className="grid sm:grid-cols-3 gap-3 text-sm">
                   {confidenceLevels.map((b) => {
@@ -477,12 +493,12 @@ export default function Page() {
                   })}
                 </div>
               </div>
-            </div>
+            </GlowCard>
           </CardContent>
         </Card>
 
         <div className="grid lg:grid-cols-2 gap-4">
-          <Card className="shadow-xl border border-white/70 bg-gradient-to-b from-white via-slate-50 to-slate-100 backdrop-blur"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium flex items-center justify-between">Process rate comparison<span className="text-xs text-slate-500">Rate / 1000</span></div><RateCompareChart currentCfg={currentCfg} newCfg={newCfg} /></CardContent></Card>
+          <Card className="shadow-none border-none bg-transparent"><CardContent className="p-0"><GlowCard accent="sky"><div className="space-y-3"><div className="text-sm font-medium flex items-center justify-between">Process rate comparison<span className="text-xs text-slate-500">Rate / 1000</span></div><RateCompareChart currentCfg={currentCfg} newCfg={newCfg} /></div></GlowCard></CardContent></Card>
           <DriverImpactCard
             cartons={inputs.cartonsDelivered}
             topCategory={Object.entries(split).sort((a, b) => (b[1] || 0) - (a[1] || 0))[0]}
@@ -599,44 +615,48 @@ export default function Page() {
               />
             </CardContent></Card>
             <div className="grid lg:grid-cols-2 gap-4">
-              <Card className="shadow-lg border border-white/60 bg-gradient-to-br from-white via-slate-50 to-slate-100"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium">Net savings composition (by process)</div><SavingsDonut deltas={deltaRows} net={model.benefit} /></CardContent></Card>
-              <Card className="shadow-lg border border-white/60 bg-gradient-to-br from-white via-slate-50 to-slate-100"><CardContent className="p-4"><div className="text-sm font-medium mb-2">Benefit waterfall: Current → processes → New</div><WaterfallBenefit rows={procRows} cur={model.curHours} next={model.newHours} /></CardContent></Card>
+              <Card className="shadow-none border-none bg-transparent"><CardContent className="p-0"><GlowCard accent="violet"><div className="space-y-3"><div className="text-sm font-medium">Net savings composition (by process)</div><SavingsDonut deltas={deltaRows} net={model.benefit} /></div></GlowCard></CardContent></Card>
+              <Card className="shadow-none border-none bg-transparent"><CardContent className="p-0"><GlowCard accent="amber"><div className="space-y-2"><div className="text-sm font-medium">Benefit waterfall: Current → processes → New</div><WaterfallBenefit rows={procRows} cur={model.curHours} next={model.newHours} /></div></GlowCard></CardContent></Card>
             </div>
 
-            <Card className="shadow-lg border border-white/70 bg-gradient-to-br from-white via-slate-50 to-slate-100"><CardContent className="p-4 space-y-4">
-              <div className="text-sm font-medium">Value Stream Map</div>
-              <LeanVSM
-                curHours={model.curByProc}
-                newHours={model.newByProc}
-                curUnits={model.curUnits}
-                newUnits={model.newUnits}
-                vaCur={vaCur}
-                vaNew={vaNew}
-                waitCur={waitCur}
-                waitNew={waitNew}
-                cfgCur={currentCfg}
-                cfgNew={newCfg}
-              />
+            <Card className="shadow-none border-none bg-transparent"><CardContent className="p-0">
+              <GlowCard accent="slate">
+                <div className="space-y-4">
+                  <div className="text-sm font-medium">Value Stream Map</div>
+                  <LeanVSM
+                    curHours={model.curByProc}
+                    newHours={model.newByProc}
+                    curUnits={model.curUnits}
+                    newUnits={model.newUnits}
+                    vaCur={vaCur}
+                    vaNew={vaNew}
+                    waitCur={waitCur}
+                    waitNew={waitNew}
+                    cfgCur={currentCfg}
+                    cfgNew={newCfg}
+                  />
+                </div>
+              </GlowCard>
             </CardContent></Card>
           </TabsContent>
 
           <TabsContent value="explorer" className="space-y-6">
-            <Card className="shadow-lg border border-white/70 bg-gradient-to-br from-white via-slate-50 to-slate-100"><CardContent className="p-4 space-y-3"><div className="text-sm font-medium">Import forecast hours (.xlsx)</div>
+            <Card className="shadow-none border-none bg-transparent"><CardContent className="p-0"><GlowCard accent="sky"><div className="space-y-3"><div className="text-sm font-medium">Import forecast hours (.xlsx)</div>
               <div className="grid sm:grid-cols-2 gap-3"><div className="space-y-1"><Label className="text-xs">File (sheet: &quot;Forecast Roster Hours&quot;)</Label><Input type="file" accept=".xlsx,.xls" onChange={onExcel} /></div>
                 <div className="space-y-1"><Label className="text-xs">Status</Label><div className="text-sm text-slate-700">{sheetHours ? `${Object.keys(sheetHours).length} processes loaded: ${Object.keys(sheetHours).join(", ")}` : "No file loaded"}</div></div>
               </div>
-            </CardContent></Card>
+            </div></GlowCard></CardContent></Card>
             <div className="grid lg:grid-cols-2 gap-4">
-              <Card className="shadow-lg border border-white/70 bg-gradient-to-br from-white via-slate-50 to-slate-100"><CardContent className="p-4 space-y-4">
+              <Card className="shadow-none border-none bg-transparent"><CardContent className="p-0"><GlowCard accent="slate"><div className="space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-sm font-medium">Per-process parameters (Current)</div><Button size="sm" variant="outline" onClick={deriveRatesFromHours}>Auto-calc rates</Button></div>
                 <ProcTable cfg={currentCfg} setCfg={setCurrentCfg} sheetHours={sheetHours} workload={model.curUnits} hoursMap={model.curByProc} />
-              </CardContent></Card>
-              <Card className="shadow-lg border border-white/70 bg-gradient-to-br from-white via-slate-50 to-slate-100"><CardContent className="p-4 space-y-4">
+              </div></GlowCard></CardContent></Card>
+              <Card className="shadow-none border-none bg-transparent"><CardContent className="p-0"><GlowCard accent="slate"><div className="space-y-4">
                 <div className="flex items-center justify-between gap-2"><div className="text-sm font-medium">Per-process parameters (New)</div><div className="text-xs text-slate-500">Shows % vs current</div></div>
                 <ProcTable cfg={newCfg} setCfg={setNewCfg} sheetHours={sheetHours} compareRates={currentCfg} workload={model.newUnits} hoursMap={model.newByProc} />
-              </CardContent></Card>
+              </div></GlowCard></CardContent></Card>
             </div>
-            <Card className="shadow-lg border border-white/70 bg-gradient-to-br from-white via-slate-50 to-slate-100"><CardContent className="p-4 space-y-4">
+            <Card className="shadow-none border-none bg-transparent"><CardContent className="p-0"><GlowCard accent="sky"><div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <div className="text-sm font-medium">Value Stream Map parameters</div>
@@ -652,7 +672,7 @@ export default function Page() {
                 onVaChange={updateVa}
                 onWaitChange={updateWait}
               />
-            </CardContent></Card>
+            </div></GlowCard></CardContent></Card>
           </TabsContent>
         </Tabs>
       </div>
@@ -671,46 +691,48 @@ function ProcTable({ cfg, setCfg, sheetHours, compareRates, workload, hoursMap }
   return (
     <div className="grid md:grid-cols-2 gap-4">
       {PROCS.map((p) => (
-        <div key={p} className="border rounded-2xl bg-white/85 shadow-sm p-3 space-y-2">
-          <div className="text-sm font-medium flex items-center justify-between"><span>{PROC_LABEL(p)}</span><span className="text-[11px] text-slate-500">{sheetHours?.[p] != null ? `Forecast: ${fmt(sheetHours[p])} hrs` : "Forecast: —"}</span></div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label className="text-xs">Unit (fixed)</Label>
-              <div className="text-sm font-semibold text-slate-800 capitalize">{cfg[p].unit}</div>
-              <div className="text-[11px] text-slate-500">Defined by process</div>
+        <GlowCard key={p} accent="slate">
+          <div className="space-y-3">
+            <div className="text-sm font-medium flex items-center justify-between"><span>{PROC_LABEL(p)}</span><span className="text-[11px] text-slate-500">{sheetHours?.[p] != null ? `Forecast: ${fmt(sheetHours[p])} hrs` : "Forecast: —"}</span></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Unit (fixed)</Label>
+                <div className="text-sm font-semibold text-slate-800 capitalize">{cfg[p].unit}</div>
+                <div className="text-[11px] text-slate-500">Defined by process</div>
+              </div>
+              <div className="space-y-1"><Label className="text-xs">Override with roster</Label><div><Switch checked={cfg[p].useRoster} onCheckedChange={(v) => setCfg((s) => ({ ...s, [p]: { ...s[p], useRoster: v } }))} /></div></div>
+              <div className="space-y-1">
+                <NumInput label="Rate / 1000" val={cfg[p].rate} set={(n) => setCfg((s) => ({ ...s, [p]: { ...s[p], rate: Math.max(0, n) } }))} />
+                {compareRates?.[p]?.rate != null ? (() => {
+                  const baseRate = compareRates?.[p]?.rate ?? 0;
+                  const base = baseRate;
+                  const diff = base > 0 ? ((base - cfg[p].rate) / base) * 100 : 0;
+                  const color = diff >= 0 ? "text-emerald-600" : "text-rose-600";
+                  const label = diff >= 0 ? "faster" : "slower";
+                  return <div className={`text-[11px] ${color}`}>{diff >= 0 ? "+" : ""}{fmt(diff, 1)}% {label} vs current</div>;
+                })() : null}
+              </div>
+              <NumInput label="Custom Hours" val={cfg[p].roster} set={(n) => setCfg((s) => ({ ...s, [p]: { ...s[p], roster: Math.max(0, n) } }))} />
             </div>
-            <div className="space-y-1"><Label className="text-xs">Override with roster</Label><div><Switch checked={cfg[p].useRoster} onCheckedChange={(v) => setCfg((s) => ({ ...s, [p]: { ...s[p], useRoster: v } }))} /></div></div>
-            <div className="space-y-1">
-              <NumInput label="Rate / 1000" val={cfg[p].rate} set={(n) => setCfg((s) => ({ ...s, [p]: { ...s[p], rate: Math.max(0, n) } }))} />
-              {compareRates?.[p]?.rate != null ? (() => {
-                const baseRate = compareRates?.[p]?.rate ?? 0;
-                const base = baseRate;
-                const diff = base > 0 ? ((base - cfg[p].rate) / base) * 100 : 0;
-                const color = diff >= 0 ? "text-emerald-600" : "text-rose-600";
-                const label = diff >= 0 ? "faster" : "slower";
-                return <div className={`text-[11px] ${color}`}>{diff >= 0 ? "+" : ""}{fmt(diff, 1)}% {label} vs current</div>;
-              })() : null}
-            </div>
-            <NumInput label="Custom Hours" val={cfg[p].roster} set={(n) => setCfg((s) => ({ ...s, [p]: { ...s[p], roster: Math.max(0, n) } }))} />
+            {workload && (
+              <div className="text-[11px] text-slate-600 flex items-center justify-between">
+                <span>Workload input</span>
+                <span>{fmt(workload[p] || 0)} {cfg[p].unit === "online" ? "units" : "ct"}/wk</span>
+              </div>
+            )}
+            {hoursMap && (
+              <div className="text-[11px] text-slate-600 flex items-center justify-between">
+                <span>Hours required</span>
+                <span>{fmt(hoursMap[p] || 0)} hrs</span>
+              </div>
+            )}
+            {sheetHours?.[p] != null && (
+              <div className="text-[11px] text-slate-600">Source: Excel (Forecast Roster Hours)
+                <span className={`ml-2 px-1.5 py-0.5 rounded border ${!cfg[p].useRoster ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-slate-100 text-slate-600 border-slate-200"}`}>{!cfg[p].useRoster ? "Active" : "Inactive (Custom set)"}</span>
+              </div>
+            )}
           </div>
-          {workload && (
-            <div className="text-[11px] text-slate-600 flex items-center justify-between">
-              <span>Workload input</span>
-              <span>{fmt(workload[p] || 0)} {cfg[p].unit === "online" ? "units" : "ct"}/wk</span>
-            </div>
-          )}
-          {hoursMap && (
-            <div className="text-[11px] text-slate-600 flex items-center justify-between">
-              <span>Hours required</span>
-              <span>{fmt(hoursMap[p] || 0)} hrs</span>
-            </div>
-          )}
-          {sheetHours?.[p] != null && (
-            <div className="text-[11px] text-slate-600">Source: Excel (Forecast Roster Hours)
-              <span className={`ml-2 px-1.5 py-0.5 rounded border ${!cfg[p].useRoster ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-slate-100 text-slate-600 border-slate-200"}`}>{!cfg[p].useRoster ? "Active" : "Inactive (Custom set)"}</span>
-            </div>
-          )}
-        </div>
+        </GlowCard>
       ))}
     </div>
   );
@@ -1074,26 +1096,30 @@ function DriverImpactCard({
     },
   ];
   return (
-    <Card className="shadow-xl border border-white/70 bg-gradient-to-br from-white via-emerald-50/70 to-slate-50/70 backdrop-blur">
-      <CardContent className="p-4 space-y-4">
-        <div>
-          <div className="text-xs uppercase tracking-wide text-slate-500">Driver impact</div>
-          <div className="text-sm text-slate-900 font-semibold">How adjustments translate to savings</div>
-        </div>
-        <div className="space-y-3">
-          {drivers.map((d) => (
-            <div key={d.title} className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2">
-              <div className="flex items-center justify-between text-xs text-slate-600">
-                <span className="font-medium text-slate-700">{d.title}</span>
-                <span className="text-slate-900 font-semibold">{d.value}</span>
-              </div>
-              <div className="text-[11px] text-slate-500 mt-1">{d.detail}</div>
+    <Card className="shadow-none border-none bg-transparent">
+      <CardContent className="p-0">
+        <GlowCard accent="emerald">
+          <div className="space-y-4">
+            <div>
+              <div className="text-xs uppercase tracking-wide text-slate-500">Driver impact</div>
+              <div className="text-sm text-slate-900 font-semibold">How adjustments translate to savings</div>
             </div>
-          ))}
-        </div>
-        <div className="text-xs text-slate-500 border-t pt-3">
-          Productivity gain: <span className={productivityDelta >= 0 ? "text-emerald-600 font-semibold" : "text-rose-600 font-semibold"}>{productivityDelta >= 0 ? "+" : ""}{fmt(productivityDelta, 2)} ct/hr</span> · Weekly savings: <span className="font-semibold text-slate-900">A${fmt(Math.round(savings))}</span>
-        </div>
+            <div className="space-y-3">
+              {drivers.map((d) => (
+                <div key={d.title} className="rounded-2xl border border-white/70 bg-white/80 px-3 py-2 shadow-sm transition duration-300 hover:-translate-y-0.5">
+                  <div className="flex items-center justify-between text-xs text-slate-600">
+                    <span className="font-medium text-slate-700">{d.title}</span>
+                    <span className="text-slate-900 font-semibold">{d.value}</span>
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-1">{d.detail}</div>
+                </div>
+              ))}
+            </div>
+            <div className="text-xs text-slate-500 border-t border-white/70 pt-3">
+              Productivity gain: <span className={productivityDelta >= 0 ? "text-emerald-600 font-semibold" : "text-rose-600 font-semibold"}>{productivityDelta >= 0 ? "+" : ""}{fmt(productivityDelta, 2)} ct/hr</span> · Weekly savings: <span className="font-semibold text-slate-900">${fmt(Math.round(savings))}</span>
+            </div>
+          </div>
+        </GlowCard>
       </CardContent>
     </Card>
   );
@@ -1179,29 +1205,71 @@ function VsmControls({
         const vaCurPct = Math.round((vaCur[p] ?? 0) * 100);
         const vaNewPct = Math.round((vaNew[p] ?? 0) * 100);
         return (
-          <div key={p} className="border border-white/80 rounded-2xl bg-white/85 p-3 shadow-sm space-y-3">
-            <div className="text-sm font-semibold text-slate-800">{PROC_LABEL(p)}</div>
-            <div className="grid md:grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs text-slate-500">
-                  <span>Value-add % (Current)</span>
-                  <span>{vaCurPct}%</span>
+          <GlowCard key={p} accent="slate">
+            <div className="space-y-3">
+              <div className="text-sm font-semibold text-slate-800">{PROC_LABEL(p)}</div>
+              <div className="grid md:grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs text-slate-500">
+                    <span>Value-add % (Current)</span>
+                    <span>{vaCurPct}%</span>
+                  </div>
+                  <Slider value={[vaCurPct]} min={0} max={100} step={1} onValueChange={(v) => onVaChange("current", p, clamp((v[0] || 0) / 100))} />
+                  <div className="flex items-center justify-between text-xs text-slate-500 mt-2">
+                    <span>Value-add % (Target)</span>
+                    <span>{vaNewPct}%</span>
+                  </div>
+                  <Slider value={[vaNewPct]} min={0} max={100} step={1} onValueChange={(v) => onVaChange("new", p, clamp((v[0] || 0) / 100))} />
                 </div>
-                <Slider value={[vaCurPct]} min={0} max={100} step={1} onValueChange={(v) => onVaChange("current", p, clamp((v[0] || 0) / 100))} />
-                <div className="flex items-center justify-between text-xs text-slate-500 mt-2">
-                  <span>Value-add % (Target)</span>
-                  <span>{vaNewPct}%</span>
+                <div className="space-y-3">
+                  <NumInput label="Wait hours (Current)" val={waitCur[p] || 0} step={0.5} set={(n) => onWaitChange("current", p, n)} />
+                  <NumInput label="Wait hours (Target)" val={waitNew[p] || 0} step={0.5} set={(n) => onWaitChange("new", p, n)} />
                 </div>
-                <Slider value={[vaNewPct]} min={0} max={100} step={1} onValueChange={(v) => onVaChange("new", p, clamp((v[0] || 0) / 100))} />
-              </div>
-              <div className="space-y-3">
-                <NumInput label="Wait hours (Current)" val={waitCur[p] || 0} step={0.5} set={(n) => onWaitChange("current", p, n)} />
-                <NumInput label="Wait hours (Target)" val={waitNew[p] || 0} step={0.5} set={(n) => onWaitChange("new", p, n)} />
               </div>
             </div>
-          </div>
+          </GlowCard>
         );
       })}
+    </div>
+  );
+}
+
+const GLOW_PRESETS = {
+  emerald: {
+    gradient: "from-white via-emerald-50 to-slate-50",
+    blobA: "bg-emerald-200/50",
+    blobB: "bg-sky-200/40",
+  },
+  sky: {
+    gradient: "from-white via-sky-50 to-blue-50",
+    blobA: "bg-sky-200/40",
+    blobB: "bg-cyan-200/40",
+  },
+  violet: {
+    gradient: "from-white via-violet-50 to-fuchsia-50",
+    blobA: "bg-violet-200/40",
+    blobB: "bg-pink-200/40",
+  },
+  amber: {
+    gradient: "from-white via-amber-50 to-orange-50",
+    blobA: "bg-amber-200/40",
+    blobB: "bg-orange-200/40",
+  },
+  slate: {
+    gradient: "from-white via-slate-50 to-stone-50",
+    blobA: "bg-slate-200/40",
+    blobB: "bg-stone-200/40",
+  },
+} as const;
+type GlowAccent = keyof typeof GLOW_PRESETS;
+
+function GlowCard({ children, accent = "emerald" }: { children: React.ReactNode; accent?: GlowAccent }) {
+  const preset = GLOW_PRESETS[accent] ?? GLOW_PRESETS.emerald;
+  return (
+    <div className={`relative overflow-hidden rounded-3xl border border-white/70 bg-gradient-to-br ${preset.gradient} p-5 shadow-xl`}>
+      <div className={`pointer-events-none absolute -top-16 -right-12 h-48 w-48 rounded-full ${preset.blobA} blur-3xl animate-pulse`} aria-hidden="true" />
+      <div className={`pointer-events-none absolute -bottom-20 -left-12 h-48 w-48 rounded-full ${preset.blobB} blur-3xl animate-pulse`} aria-hidden="true" />
+      <div className="relative">{children}</div>
     </div>
   );
 }
