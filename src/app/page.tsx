@@ -723,15 +723,7 @@ export default function Page() {
 
         <div className="grid lg:grid-cols-2 gap-4">
           <Card className="shadow-none border-none bg-transparent"><CardContent className="p-0"><GlowCard accent="sky"><div className="space-y-3"><div className="text-sm font-medium flex items-center justify-between">Process rate comparison<span className="text-xs text-slate-500">Rate / 1000</span></div><RateCompareChart currentCfg={currentCfg} newCfg={newCfg} /></div></GlowCard></CardContent></Card>
-          <DriverImpactCard
-            cartons={inputs.cartonsDelivered}
-            topCategory={Object.entries(split).sort((a, b) => (b[1] || 0) - (a[1] || 0))[0]}
-            mitigation={mitigation}
-            nvatCur={nvatCur}
-            nvatNew={nvatNew}
-            productivityDelta={prodDelta}
-            savings={model.savings}
-          />
+          <Card className="shadow-none border-none bg-transparent"><CardContent className="p-0"><GlowCard accent="violet"><div className="space-y-3"><div className="text-sm font-medium flex items-center justify-between">Hours variance by process<span className="text-xs text-slate-500">New vs current</span></div><HoursVarianceChart currentHours={model.curByProc} newHours={model.newByProc} /></div></GlowCard></CardContent></Card>
         </div>
 
         <Tabs defaultValue="overview">
@@ -1425,75 +1417,6 @@ function RateCompareChart({ currentCfg, newCfg }: { currentCfg: Record<ProcessKe
   );
 }
 
-function DriverImpactCard({
-  cartons,
-  topCategory,
-  mitigation,
-  nvatCur,
-  nvatNew,
-  productivityDelta,
-  savings,
-}: {
-  cartons: number;
-  topCategory?: [string, number];
-  mitigation: number;
-  nvatCur: { bounce: number; lf2d: number };
-  nvatNew: { bounce: number; lf2d: number };
-  productivityDelta: number;
-  savings: number;
-}) {
-  const drivers = [
-    {
-      title: "Volume lever",
-      value: `${fmt(Math.round(cartons))} ct/wk`,
-      detail: "Cartons receipted drive labour demand; adjust to test load sensitivity.",
-    },
-    {
-      title: "Channel lever",
-      value: topCategory ? `${topCategory[0]} ${(topCategory[1] * 100).toFixed(0)}%` : "Balanced",
-      detail: "Channel split shifts workload between Loadfill, Packaway, and Digital.",
-    },
-    {
-      title: "NVAT leakage",
-      value: `Current ${Math.round((nvatCur.bounce || 0) * 100)}% → New ${Math.round((nvatNew.bounce || 0) * 100)}%`,
-      detail: "Tighten bounce-back & LF→Digital rework to release more hours.",
-    },
-    {
-      title: "Mitigation confidence",
-      value: `${Math.round(mitigation * 100)}%`,
-      detail: "Apply mitigation to issue scenarios to see best/worst case views.",
-    },
-  ];
-  return (
-    <Card className="shadow-none border-none bg-transparent">
-      <CardContent className="p-0">
-        <GlowCard accent="emerald">
-          <div className="space-y-4">
-            <div>
-              <div className="text-xs uppercase tracking-wide text-slate-500">Driver impact</div>
-              <div className="text-sm text-slate-900 font-semibold">How adjustments translate to savings</div>
-            </div>
-            <div className="space-y-3">
-              {drivers.map((d) => (
-                <div key={d.title} className="rounded-2xl border border-white/70 bg-white/80 px-3 py-2 shadow-sm transition duration-300 hover:-translate-y-0.5">
-                  <div className="flex items-center justify-between text-xs text-slate-600">
-                    <span className="font-medium text-slate-700">{d.title}</span>
-                    <span className="text-slate-900 font-semibold">{d.value}</span>
-                  </div>
-                  <div className="text-[11px] text-slate-500 mt-1">{d.detail}</div>
-                </div>
-              ))}
-            </div>
-            <div className="text-xs text-slate-500 border-t border-white/70 pt-3">
-              Productivity gain: <span className={productivityDelta >= 0 ? "text-emerald-600 font-semibold" : "text-rose-600 font-semibold"}>{productivityDelta >= 0 ? "+" : ""}{fmt(productivityDelta, 2)} ct/hr</span> · Weekly savings: <span className="font-semibold text-slate-900">${fmt(Math.round(savings))}</span>
-            </div>
-          </div>
-        </GlowCard>
-      </CardContent>
-    </Card>
-  );
-}
-
 function CategoryControls({
   title,
   remainingPct,
@@ -1582,6 +1505,64 @@ function CategoryControls({
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function HoursVarianceChart({ currentHours, newHours }: { currentHours: Record<ProcessKey, number>; newHours: Record<ProcessKey, number> }) {
+  const rows = PROCS.filter((p) => p !== "Backfill").map((p) => {
+    const current = Math.max(0, currentHours[p] || 0);
+    const next = Math.max(0, newHours[p] || 0);
+    const diffPct = current > 0 ? ((next - current) / current) * 100 : next > 0 ? 100 : 0;
+    return {
+      key: p,
+      name: PROC_LABEL(p),
+      current,
+      next,
+      diffPct,
+    };
+  });
+  const maxHours = Math.max(1, ...rows.map((r) => Math.max(r.current, r.next)));
+  const avgCurrent = rows.reduce((sum, r) => sum + r.current, 0) / (rows.length || 1);
+  const avgNext = rows.reduce((sum, r) => sum + r.next, 0) / (rows.length || 1);
+  const avgDiff = avgCurrent > 0 ? ((avgNext - avgCurrent) / avgCurrent) * 100 : avgNext > 0 ? 100 : 0;
+  const avgColor = avgDiff <= 0 ? "text-emerald-600" : "text-rose-600";
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between text-xs text-slate-600">
+        <span>Average variance</span>
+        <span className={`text-sm font-semibold ${avgColor}`}>{avgDiff > 0 ? "+" : ""}{fmt(avgDiff, 1)}%</span>
+      </div>
+      {rows.map((r) => {
+        const curW = Math.max(4, (r.current / maxHours) * 100);
+        const newW = Math.max(4, (r.next / maxHours) * 100);
+        const diffColor = r.diffPct <= 0 ? "text-emerald-600" : "text-rose-600";
+        return (
+          <div key={r.key} className="space-y-1">
+            <div className="flex items-center justify-between text-xs text-slate-600">
+              <span>{r.name}</span>
+              <span className={diffColor}>{r.diffPct > 0 ? "+" : ""}{fmt(r.diffPct, 1)}%</span>
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-[11px] text-slate-600">
+                <span className="w-12">Current</span>
+                <div className="flex-1 h-2 rounded bg-slate-200 relative overflow-hidden">
+                  <div className="absolute inset-y-0 left-0 bg-slate-500/70" style={{ width: `${curW}%` }} />
+                </div>
+                <span>{fmt(r.current)}</span>
+              </div>
+              <div className="flex items-center gap-2 text-[11px] text-slate-600">
+                <span className="w-12 text-emerald-600">New</span>
+                <div className="flex-1 h-2 rounded bg-slate-200 relative overflow-hidden">
+                  <div className="absolute inset-y-0 left-0 bg-emerald-500/80" style={{ width: `${newW}%` }} />
+                </div>
+                <span>{fmt(r.next)}</span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
