@@ -1546,16 +1546,16 @@ function HoursVarianceChart({ currentHours, newHours }: { currentHours: Record<P
             </div>
             <div className="space-y-1">
               <div className="flex items-center gap-2 text-[11px] text-slate-600">
-                <span className="w-12">Current</span>
+                <span className="w-12 text-sky-600">Current</span>
                 <div className="flex-1 h-2 rounded bg-slate-200 relative overflow-hidden">
-                  <div className="absolute inset-y-0 left-0 bg-slate-500/70" style={{ width: `${curW}%` }} />
+                  <div className="absolute inset-y-0 left-0 bg-sky-500" style={{ width: `${curW}%` }} />
                 </div>
                 <span>{fmt(r.current)}</span>
               </div>
               <div className="flex items-center gap-2 text-[11px] text-slate-600">
                 <span className="w-12 text-emerald-600">New</span>
                 <div className="flex-1 h-2 rounded bg-slate-200 relative overflow-hidden">
-                  <div className="absolute inset-y-0 left-0 bg-emerald-500/80" style={{ width: `${newW}%` }} />
+                  <div className="absolute inset-y-0 left-0 bg-emerald-500" style={{ width: `${newW}%` }} />
                 </div>
                 <span>{fmt(r.next)}</span>
               </div>
